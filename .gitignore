@@ -1,0 +1,27 @@
+# 忽略操作系统生成的文件
+.DS_Store
+Thumbs.db
+
+# 忽略 Python 环境文件
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# 忽略 Python 虚拟环境
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 忽略编译生成的文件
+*.exe
+*.dll
+*.o
+*.obj
+
+# 忽略 IDE 和编辑器配置文件
+.vscode/
+.idea/
+*.iml
