@@ -25,24 +25,37 @@ def raw_env(**kwargs):
     To support the AEC API, the raw_env() function just uses the from_parallel
     function to convert from a ParallelEnv to an AEC env
     """
-    env = PoiEdgeEnv(render_mode=kwargs.get("render_mode"))
+    env = EdgeVIoTEnv(render_mode=kwargs.get("render_mode"))
     env = parallel_to_aec(env)
     return env
 
-class PoiEdgeEnv(ParallelEnv):
+class EdgeVIoTEnv(ParallelEnv):
     metadata = {
         "name": "edge_viot_env_v0",
     }
     
     def __init__(self, *args, **kwargs):
+        # init
+        self.num_agents = 5
+        self.render_mode = "ansi"
+        self.act_dims = [1, 1]
+        self.action_space = ...
+        self.observation_space = ...
+        
         # agents
-        num_agents = kwargs.get("num_agents")
-        self.agents = ["rsu" + str(a) for a in range(num_agents)]
+        # num_agents = kwargs.get("num_agents")
+        self.agents = ["rsu" + str(a) for a in range(self.num_agents)]
         self.possible_agents = self.agents[:]
         self.agent_name_mapping = dict(zip(self.agents, list(range(self.num_agents))))
         self._agent_selector = agent_selector(self.agents)
         # self.possible_agents = ["test"]
-        self.render_mode = kwargs.get("render_mode")
+        
+        # spaces
+        self.n_act_agents = self.act_dims[0]
+        self.action_spaces = dict(zip(self.agents, self.action_space))
+        self.observation_spaces = dict(zip(self.agents, self.observation_space))
+        self.steps = 0
+        self.closed = False
         pass
 
     def reset(self, seed=None, options=None):
@@ -55,7 +68,8 @@ class PoiEdgeEnv(ParallelEnv):
         """
         self.agents = self.possible_agents[:]
         # self.num_moves = 0
-        observations = {agent: NONE for agent in self.agents}
+        # None need trans to real init value
+        observations = {agent: None for agent in self.agents}
         infos = {agent: {} for agent in self.agents}
         self.state = observations
 
