@@ -7,7 +7,7 @@ class PoiEdgeEnv(ParallelEnv):
     }
 
     def __init__(self):
-        self.possible_agents = ["prisoner"]
+        # self.possible_agents = ["test"]
         pass
 
     def reset(self, seed=None, options=None):
