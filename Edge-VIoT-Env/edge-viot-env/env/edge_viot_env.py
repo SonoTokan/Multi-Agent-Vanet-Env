@@ -1,12 +1,11 @@
 # doc: https://pettingzoo.farama.org/content/environment_creation/
 from pettingzoo import ParallelEnv
-from gymnasium.spaces import Discrete, MultiDiscrete
+from gymnasium import spaces
 from pettingzoo.utils import agent_selector, wrappers, parallel_to_aec
+import numpy as np
 
+# ignore
 def env(**kwargs):
-    """
-    The env function often wraps the environment in wrappers by default.
-    """
     render_mode = kwargs.get("render_mode")
     internal_render_mode = render_mode if render_mode != "ansi" else "human"
     env = raw_env(render_mode=internal_render_mode)
@@ -20,11 +19,8 @@ def env(**kwargs):
     env = wrappers.OrderEnforcingWrapper(env)
     return env
 
+# ignore
 def raw_env(**kwargs):
-    """
-    To support the AEC API, the raw_env() function just uses the from_parallel
-    function to convert from a ParallelEnv to an AEC env
-    """
     env = EdgeVIoTEnv(render_mode=kwargs.get("render_mode"))
     env = parallel_to_aec(env)
     return env
@@ -35,23 +31,46 @@ class EdgeVIoTEnv(ParallelEnv):
     }
     
     def __init__(self, *args, **kwargs):
-        # init
-        self.num_agents = 5
+        # Init
+        self.num_agents = 4
+        self.num_jobs = 5
+        self.max_cache = 5
         self.render_mode = "ansi"
-        self.act_dims = [1, 1]
-        self.action_space = ...
-        self.observation_space = ...
+        # self.act_dims = [1, 1]
+        # self.n_act_agents = self.act_dims[0]
+
+        num_jobs = self.num_jobs
+        num_agents = self.num_agents
+        max_cache = self.max_cache
         
         # agents
         # num_agents = kwargs.get("num_agents")
-        self.agents = ["rsu" + str(a) for a in range(self.num_agents)]
+        self.agents = ["rsu_" + str(i) for i in range(self.num_agents)]
         self.possible_agents = self.agents[:]
         self.agent_name_mapping = dict(zip(self.agents, list(range(self.num_agents))))
         self._agent_selector = agent_selector(self.agents)
         # self.possible_agents = ["test"]
         
-        # spaces
-        self.n_act_agents = self.act_dims[0]
+        # Spaces
+        # Define action space for each RSU
+        self.action_space = spaces.Tuple((
+            spaces.MultiBinary(num_jobs),  # 1. Whether to migrate each job (0-1)
+            spaces.MultiDiscrete([num_agents + 1] * num_jobs),  # 2. Target RSU or core network
+            spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 3. Migration ratio
+            spaces.Discrete(max_cache),  # 4. Cache content selection
+            spaces.MultiBinary(1),  # 5. Accept new job (0-1)
+            spaces.MultiDiscrete([num_agents + 1])  # 6. Target RSU or core network for rejected job
+        ))
+        
+        # Define observation space
+        self.observation_space = spaces.Dict({
+            'jobs': spaces.Box(low=0, high=1, shape=(num_agents, num_jobs), dtype=np.float32),  # Job status for all RSUs
+            'compute_capacity': spaces.Box(low=0, high=1, shape=(num_agents,), dtype=np.float32),  # Compute capacity for all RSUs
+            'bandwidth': spaces.Box(low=0, high=1, shape=(num_agents, num_jobs), dtype=np.float32),  # Bandwidth between RSUs and users
+            'cache': spaces.MultiDiscrete([max_cache] * num_agents),  # Cache status for all RSUs
+            'user_trajectory': spaces.Box(low=0, high=1, shape=(num_jobs, 2), dtype=np.float32)  # User trajectory data after processing  
+        })
+        
         self.action_spaces = dict(zip(self.agents, self.action_space))
         self.observation_spaces = dict(zip(self.agents, self.observation_space))
         self.steps = 0
@@ -60,19 +79,25 @@ class EdgeVIoTEnv(ParallelEnv):
 
     def reset(self, seed=None, options=None):
         """
-        Reset needs to initialize the `agents` attribute and must set up the
-        environment so that render(), and step() can be called without issues.
-        Here it initializes the `num_moves` variable which counts the number of
-        hands that are played.
+        Init agents attr
         Returns the observations for each agent
         """
         self.agents = self.possible_agents[:]
-        # self.num_moves = 0
-        # None need trans to real init value
-        observations = {agent: None for agent in self.agents}
+        
+        # Reset the state of the environment to an initial state
+        observations = {
+            agent: {
+            'jobs': np.zeros((self.num_rsus, self.num_jobs), dtype=np.float32),
+            'compute_capacity': np.zeros((self.num_rsus,), dtype=np.float32),
+            'bandwidth': np.zeros((self.num_rsus, self.num_users), dtype=np.float32),
+            'cache': np.zeros((self.num_rsus, self.max_cache), dtype=np.float32),
+            'user_trajectory': np.zeros((self.num_jobs, 2), dtype=np.float32)
+        } for agent in self.agents}
+        
         infos = {agent: {} for agent in self.agents}
         self.state = observations
 
+            
         return observations, infos
 
     def step(self, actions):
@@ -85,6 +110,21 @@ class EdgeVIoTEnv(ParallelEnv):
         - infos
         dicts where each dict looks like {agent_1: item_1, agent_2: item_2}
         """
+        # Env Simulate
+        
+        # Capacity
+        # 1.Storage capacity changes
+        
+        # 2.Bandwidth capacity changes
+        
+        # 3.Computing capacity changes
+        
+        
+        # QoE 
+        # 1.Transmission Latency
+        # 2.Computational Latency
+        # 3.Weighted Sum
+        
         pass
 
     def render(self):
