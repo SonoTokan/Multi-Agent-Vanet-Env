@@ -35,6 +35,7 @@ class EdgeVIoTEnv(ParallelEnv):
         self.num_agents = 4
         self.num_jobs = 5
         self.max_cache = 5
+        self.max_content = 10
         self.render_mode = "ansi"
         # self.act_dims = [1, 1]
         # self.n_act_agents = self.act_dims[0]
@@ -42,6 +43,7 @@ class EdgeVIoTEnv(ParallelEnv):
         num_jobs = self.num_jobs
         num_agents = self.num_agents
         max_cache = self.max_cache
+        max_content = self.max_content
         
         # agents
         # num_agents = kwargs.get("num_agents")
@@ -53,13 +55,12 @@ class EdgeVIoTEnv(ParallelEnv):
         
         # Spaces
         # Define action space for each RSU
+        # Change in any stage
         self.action_space = spaces.Tuple((
-            spaces.MultiBinary(num_jobs),  # 1. Whether to migrate each job (0-1)
-            spaces.MultiDiscrete([num_agents + 1] * num_jobs),  # 2. Target RSU or core network
-            spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 3. Migration ratio
-            spaces.Discrete(max_cache),  # 4. Cache content selection
-            spaces.MultiBinary(1),  # 5. Accept new job (0-1)
-            spaces.MultiDiscrete([num_agents + 1])  # 6. Target RSU or core network for rejected job
+            spaces.MultiDiscrete([num_agents + 1] * num_jobs),  # 1. Target RSU or core network, 0 for not migrate
+            spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 2. Migration ratio
+            spaces.Discrete([max_content] * max_cache),  # 3. Cache content selection (select 5 different content to cache), this maybe duplicate selection, need to be handled
+            spaces.MultiDiscrete([num_agents + 1])  # 4. Target RSU or core network for rejected job, 0 for accept
         ))
         
         # Define observation space
@@ -67,7 +68,7 @@ class EdgeVIoTEnv(ParallelEnv):
             'jobs': spaces.Box(low=0, high=1, shape=(num_agents, num_jobs), dtype=np.float32),  # Job status for all RSUs
             'compute_capacity': spaces.Box(low=0, high=1, shape=(num_agents,), dtype=np.float32),  # Compute capacity for all RSUs
             'bandwidth': spaces.Box(low=0, high=1, shape=(num_agents, num_jobs), dtype=np.float32),  # Bandwidth between RSUs and users
-            'cache': spaces.MultiDiscrete([max_cache] * num_agents),  # Cache status for all RSUs
+            'cache': spaces.MultiDiscrete([max_content] * max_cache * num_agents),  # Cache status for all RSUs
             'user_trajectory': spaces.Box(low=0, high=1, shape=(num_jobs, 2), dtype=np.float32)  # User trajectory data after processing  
         })
         
@@ -96,7 +97,7 @@ class EdgeVIoTEnv(ParallelEnv):
         
         infos = {agent: {} for agent in self.agents}
         self.state = observations
-
+        
             
         return observations, infos
 
