@@ -1,31 +1,31 @@
 # doc: https://pettingzoo.farama.org/content/environment_creation/
-from pettingzoo import ParallelEnv
+from pettingzoo import AECEnv
 from gymnasium import spaces
 from pettingzoo.utils import agent_selector, wrappers, parallel_to_aec
 import numpy as np
 
 # ignore
-def env(**kwargs):
-    render_mode = kwargs.get("render_mode")
-    internal_render_mode = render_mode if render_mode != "ansi" else "human"
-    env = raw_env(render_mode=internal_render_mode)
-    # This wrapper is only for environments which print results to the terminal
-    if render_mode == "ansi":
-        env = wrappers.CaptureStdoutWrapper(env)
-    # this wrapper helps error handling for discrete action spaces
-    env = wrappers.AssertOutOfBoundsWrapper(env)
-    # Provides a wide vareity of helpful user errors
-    # Strongly recommended
-    env = wrappers.OrderEnforcingWrapper(env)
-    return env
+# def env(**kwargs):
+#     render_mode = kwargs.get("render_mode")
+#     internal_render_mode = render_mode if render_mode != "ansi" else "human"
+#     env = raw_env(render_mode=internal_render_mode)
+#     # This wrapper is only for environments which print results to the terminal
+#     if render_mode == "ansi":
+#         env = wrappers.CaptureStdoutWrapper(env)
+#     # this wrapper helps error handling for discrete action spaces
+#     env = wrappers.AssertOutOfBoundsWrapper(env)
+#     # Provides a wide vareity of helpful user errors
+#     # Strongly recommended
+#     env = wrappers.OrderEnforcingWrapper(env)
+#     return env
 
-# ignore
-def raw_env(**kwargs):
-    env = EdgeVIoTEnv(render_mode=kwargs.get("render_mode"))
-    env = parallel_to_aec(env)
-    return env
+# # ignore
+# def raw_env(**kwargs):
+#     env = EdgeVIoTEnv(render_mode=kwargs.get("render_mode"))
+#     env = parallel_to_aec(env)
+#     return env
 
-class EdgeVIoTEnv(ParallelEnv):
+class EdgeVIoTEnv(AECEnv):
     metadata = {
         "name": "edge_viot_env_v0",
     }
