@@ -32,10 +32,17 @@ class EdgeVIoTEnv(AECEnv):
     
     def __init__(self, *args, **kwargs):
         # Init
-        self.num_agents = 4
-        self.num_jobs = 5
-        self.max_cache = 5
-        self.max_content = 10
+        # self.num_agents = 4
+        # self.num_jobs = 5
+        # self.max_cache = 5
+        # max cache content
+        # self.max_content = 100
+        
+        num_agents = kwargs.get('num_agents', 4)
+        num_jobs = kwargs.get('num_jobs', 5)
+        max_content = kwargs.get('max_content', 100)
+        max_cache = kwargs.get('max_cache', 10)
+        
         self.render_mode = "ansi"
         # self.act_dims = [1, 1]
         # self.n_act_agents = self.act_dims[0]
@@ -56,12 +63,21 @@ class EdgeVIoTEnv(AECEnv):
         # Spaces
         # Define action space for each RSU
         # Change in any stage
-        self.action_space = spaces.Tuple((
-            spaces.MultiDiscrete([num_agents + 1] * num_jobs),  # 1. Target RSU or core network, 0 for not migrate
-            spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 2. Migration ratio
-            spaces.Discrete([max_content] * max_cache),  # 3. Cache content selection (select 5 different content to cache), this maybe duplicate selection, need to be handled
-            spaces.MultiDiscrete([num_agents + 1])  # 4. Target RSU or core network for rejected job, 0 for accept
-        ))
+        # self.action_space = spaces.Tuple((
+        #     spaces.MultiDiscrete([num_agents + 1] * num_jobs),  # 1. Target RSU or core network, 0 for not migrate
+        #     spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 2. Migration ratio
+        #     spaces.Discrete([max_content] * max_cache),  # 3. Cache content selection (select 5 different content to cache), this maybe duplicate selection, need to be handled
+        #     spaces.MultiDiscrete([num_agents + 1])  # 4. Target RSU or core network for rejected job, 0 for accept
+        # ))
+        
+        # T = 0, 5, 10, ..., choose caching content
+        self.action_spaces = {
+            agent: spaces.Discrete([max_content] * max_cache) if self.current_time % 5 == 0 else spaces.Tuple((
+                spaces.MultiDiscrete([num_agents + 1] * num_jobs),  # 1. Target RSU or core network, 0 for not migrate
+                spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 2. Migration ratio
+                spaces.MultiDiscrete([num_agents + 1])  # 3. Target RSU or core network for rejected job, 0 for accept
+            )) for agent in range(num_agents)
+        }
         
         # Define observation space
         self.observation_space = spaces.Dict({
@@ -72,8 +88,8 @@ class EdgeVIoTEnv(AECEnv):
             'user_trajectory': spaces.Box(low=0, high=1, shape=(num_jobs, 2), dtype=np.float32)  # User trajectory data after processing  
         })
         
-        self.action_spaces = dict(zip(self.agents, self.action_space))
-        self.observation_spaces = dict(zip(self.agents, self.observation_space))
+        # self.action_spaces = dict(zip(self.agents, self.action_space))
+        # self.observation_spaces = dict(zip(self.agents, self.observation_space))
         self.steps = 0
         self.closed = False
         pass
@@ -97,7 +113,6 @@ class EdgeVIoTEnv(AECEnv):
         
         infos = {agent: {} for agent in self.agents}
         self.state = observations
-        
             
         return observations, infos
 
