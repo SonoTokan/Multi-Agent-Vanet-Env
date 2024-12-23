@@ -1,5 +1,6 @@
 # doc: https://pettingzoo.farama.org/content/environment_creation/
-from pettingzoo import AECEnv
+import functools
+from pettingzoo import AECEnv, ParallelEnv
 from gymnasium import spaces
 from pettingzoo.utils import agent_selector, wrappers, parallel_to_aec
 import numpy as np
@@ -25,71 +26,79 @@ import numpy as np
 #     env = parallel_to_aec(env)
 #     return env
 
-class EdgeVIoTEnv(AECEnv):
+class EdgeVIoTEnv(ParallelEnv):
     metadata = {
         "name": "edge_viot_env_v0",
     }
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, num_rsu=4, num_jobs=5, max_content=100, max_cache=10, current_time=0, render_mode="ansi"):
         # Init
-        # self.num_agents = 4
+        # self.num_rsu = 4
         # self.num_jobs = 5
         # self.max_cache = 5
         # max cache content
         # self.max_content = 100
         
-        num_agents = kwargs.get('num_agents', 4)
-        num_jobs = kwargs.get('num_jobs', 5)
-        max_content = kwargs.get('max_content', 100)
-        max_cache = kwargs.get('max_cache', 10)
+        self.num_rsu = num_rsu
+        self.num_jobs = num_jobs
+        self.max_content = max_content
+        self.max_cache = max_cache
+        self.current_time = current_time
+        self.time_step = 0
         
-        self.render_mode = "ansi"
+        self.render_mode = render_mode
         # self.act_dims = [1, 1]
         # self.n_act_agents = self.act_dims[0]
-
-        num_jobs = self.num_jobs
-        num_agents = self.num_agents
-        max_cache = self.max_cache
-        max_content = self.max_content
         
         # agents
-        # num_agents = kwargs.get("num_agents")
-        self.agents = ["rsu_" + str(i) for i in range(self.num_agents)]
+        # num_rsu = kwargs.get("num_rsu")
+        self.agents = ["rsu_" + str(i) for i in range(self.num_rsu)]
         self.possible_agents = self.agents[:]
-        self.agent_name_mapping = dict(zip(self.agents, list(range(self.num_agents))))
+        self.agent_name_mapping = dict(zip(self.agents, list(range(self.num_rsu))))
         self._agent_selector = agent_selector(self.agents)
+        
         # self.possible_agents = ["test"]
         
         # Spaces
         # Define action space for each RSU
         # Change in any stage
         # self.action_space = spaces.Tuple((
-        #     spaces.MultiDiscrete([num_agents + 1] * num_jobs),  # 1. Target RSU or core network, 0 for not migrate
+        #     spaces.MultiDiscrete([num_rsu + 1] * num_jobs),  # 1. Target RSU or core network, 0 for not migrate
         #     spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 2. Migration ratio
         #     spaces.Discrete([max_content] * max_cache),  # 3. Cache content selection (select 5 different content to cache), this maybe duplicate selection, need to be handled
-        #     spaces.MultiDiscrete([num_agents + 1])  # 4. Target RSU or core network for rejected job, 0 for accept
+        #     spaces.MultiDiscrete([num_rsu + 1])  # 4. Target RSU or core network for rejected job, 0 for accept
         # ))
         
         # T = 0, 5, 10, ..., choose caching content
+        # self.action_spaces = {
+        #     agent: spaces.Discrete([max_content] * max_cache) if self.current_time % 5 == 0 else spaces.Tuple((
+        #         spaces.MultiDiscrete([num_rsu + 1] * num_jobs),  # 1. Target RSU or core network, 0 for not migrate
+        #         spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 2. Migration ratio
+        #         spaces.MultiDiscrete([num_rsu + 1])  # 3. Target RSU or core network for rejected job, 0 for accept
+        #     )) for agent in range(num_rsu)
+        # }
+        
+        # No Caching
         self.action_spaces = {
-            agent: spaces.Discrete([max_content] * max_cache) if self.current_time % 5 == 0 else spaces.Tuple((
-                spaces.MultiDiscrete([num_agents + 1] * num_jobs),  # 1. Target RSU or core network, 0 for not migrate
-                spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 2. Migration ratio
-                spaces.MultiDiscrete([num_agents + 1])  # 3. Target RSU or core network for rejected job, 0 for accept
-            )) for agent in range(num_agents)
+            agent: spaces.Tuple((
+                spaces.Discrete(self.max_content * self.max_cache), # 1. Cache content selection (select 5 different content to cache), this maybe duplicate selection, need to be handled
+                spaces.MultiDiscrete([num_rsu + 1] * num_jobs),  # 2. Target RSU or core network, 0 for not migrate
+                spaces.Box(low=0, high=1, shape=(num_jobs,), dtype=np.float32),  # 3. Migration ratio
+                spaces.MultiDiscrete([num_rsu + 1])  # 4. Target RSU or core network for rejected job, 0 for accept
+            )) for agent in range(num_rsu)
         }
         
         # Define observation space
-        self.observation_space = spaces.Dict({
-            'jobs': spaces.Box(low=0, high=1, shape=(num_agents, num_jobs), dtype=np.float32),  # Job status for all RSUs
-            'compute_capacity': spaces.Box(low=0, high=1, shape=(num_agents,), dtype=np.float32),  # Compute capacity for all RSUs
-            'bandwidth': spaces.Box(low=0, high=1, shape=(num_agents, num_jobs), dtype=np.float32),  # Bandwidth between RSUs and users
-            'cache': spaces.MultiDiscrete([max_content] * max_cache * num_agents),  # Cache status for all RSUs
+        observation_space = spaces.Dict({
+            'jobs': spaces.Box(low=0, high=1, shape=(num_rsu, num_jobs), dtype=np.float32),  # Job status for all RSUs
+            'compute_capacity': spaces.Box(low=0, high=1, shape=(num_rsu,), dtype=np.float32),  # Compute capacity for all RSUs
+            'bandwidth': spaces.Box(low=0, high=1, shape=(num_rsu, num_jobs), dtype=np.float32),  # Bandwidth between RSUs and users
+            'cache': spaces.MultiDiscrete([max_content] * max_cache * num_rsu),  # Cache status for all RSUs
             'user_trajectory': spaces.Box(low=0, high=1, shape=(num_jobs, 2), dtype=np.float32)  # User trajectory data after processing  
         })
         
         # self.action_spaces = dict(zip(self.agents, self.action_space))
-        # self.observation_spaces = dict(zip(self.agents, self.observation_space))
+        self.observation_spaces = dict(zip(self.agents, observation_space))
         self.steps = 0
         self.closed = False
         pass
@@ -100,15 +109,17 @@ class EdgeVIoTEnv(AECEnv):
         Returns the observations for each agent
         """
         self.agents = self.possible_agents[:]
+        self.time_step = 0
         
         # Reset the state of the environment to an initial state
+        # Need Modify
         observations = {
             agent: {
-            'jobs': np.zeros((self.num_rsus, self.num_jobs), dtype=np.float32),
-            'compute_capacity': np.zeros((self.num_rsus,), dtype=np.float32),
-            'bandwidth': np.zeros((self.num_rsus, self.num_users), dtype=np.float32),
-            'cache': np.zeros((self.num_rsus, self.max_cache), dtype=np.float32),
-            'user_trajectory': np.zeros((self.num_jobs, 2), dtype=np.float32)
+            'jobs': np.zeros((self.num_rsu, self.num_jobs), dtype=np.float32),
+            'compute_capacity': np.zeros((self.num_rsu,), dtype=np.float32),
+            'bandwidth': np.zeros((self.num_rsu, self.num_jobs), dtype=np.float32),
+            'cache': np.zeros((self.num_rsu, self.max_cache), dtype=np.float32),
+            'user_trajectory': spaces.Box(low=0, high=1, shape=(self.num_jobs, 2), dtype=np.float32)
         } for agent in self.agents}
         
         infos = {agent: {} for agent in self.agents}
@@ -126,8 +137,16 @@ class EdgeVIoTEnv(AECEnv):
         - infos
         dicts where each dict looks like {agent_1: item_1, agent_2: item_2}
         """
+        # actions = {agent: action for agent, action in actions.items()}
         # Env Simulate
         
+        # T = 0, 5, 10, ... choose caching content
+        if self.current_time % 5 == 0:
+            pass
+        else:
+            # T = 1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, ...
+            
+            pass
         # Capacity
         # 1.Storage capacity changes
         
@@ -140,8 +159,41 @@ class EdgeVIoTEnv(AECEnv):
         # 1.Transmission Latency
         # 2.Computational Latency
         # 3.Weighted Sum
+        self.current_time += 1
         
-        pass
+        # observation sample
+        observations = {
+            agent: {
+            'jobs': np.zeros((self.num_rsu, self.num_jobs), dtype=np.float32),
+            'compute_capacity': np.zeros((self.num_rsu,), dtype=np.float32),
+            'bandwidth': np.zeros((self.num_rsu, self.num_jobs), dtype=np.float32),
+            'cache': np.zeros((self.num_rsu, self.max_cache), dtype=np.float32),
+            'user_trajectory': spaces.Box(low=0, high=1, shape=(self.num_jobs, 2), dtype=np.float32)
+        } for agent in self.agents}
+        
+        
+        # terminations = {agent: np.random.choice([True, False], p=[0.5, 0.5]) for agent in self.agents}
+        
+        # Sample reward
+        rewards = {agent: np.random.random() for agent in self.agents}
+        
+        # Sample truncations
+        # truncations = {agent: np.random.choice([True, False], p=[0.5, 0.5]) for agent in self.agents}
+        
+        # Sample infos
+        infos = {agent: {} for agent in self.agents}
+        self.time_step += 1
+        # test, delete later
+        print("Time Step: ", self.time_step)
+
+        # Sample, modify later
+        if self.time_step == 100:
+            terminations = {agent: True for agent in self.agents}
+            self.agents = []
+        else:
+            terminations = {agent: False for agent in self.agents}
+        
+        return observations, rewards, terminations, {agent: False for agent in self.agents}, infos
 
     def render(self):
         pass
@@ -153,9 +205,20 @@ class EdgeVIoTEnv(AECEnv):
         user is no longer using the environment.
         """
         pass
-
+    
+    @functools.lru_cache(maxsize=None)
     def observation_space(self, agent):
         return self.observation_spaces[agent]
 
+    # current_time: 0 for caching, 1 for migration, 
+    # here we only consider caching, 
+    # future use of hierarchical reinforcement learning separation cache
+    @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
-        return self.action_spaces[agent]
+        return spaces.Tuple((
+            spaces.Discrete(self.max_content * self.max_cache), # 1. Cache content selection (select 5 different content to cache), this maybe duplicate selection, need to be handled
+            spaces.MultiDiscrete([self.num_rsu + 1] * self.num_jobs),  # 2. Target RSU or core network, 0 for not migrate
+            spaces.Box(low=0, high=1, shape=(self.num_jobs,), dtype=np.float32),  # 3. Migration ratio
+            spaces.MultiDiscrete([self.num_rsu + 1])  # 4. Target RSU or core network for rejected job, 0 for accept
+        ))
+            
