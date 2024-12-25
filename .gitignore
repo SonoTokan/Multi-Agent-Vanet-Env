@@ -10,8 +10,6 @@ __pycache__/
 
 # 忽略 Python 虚拟环境
 venv/
-env/
-ENV/
 env.bak/
 venv.bak/
 
