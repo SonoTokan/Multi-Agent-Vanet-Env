@@ -14,10 +14,10 @@ from tianshou.utils.net.common import ActorCritic
 from tianshou.utils.net.continuous import ActorProb, Critic
 from tianshou.utils import TensorboardLogger
 from torch.utils.tensorboard import SummaryWriter
-from edge_viot_env import EdgeVIoTEnv
+from edge_viot_env import EdgeVIoTEnv, raw_env
 
 def get_env() -> PettingZooEnv:
-    return PettingZooEnv(EdgeVIoTEnv())
+    return PettingZooEnv(raw_env())
 
 def get_agents(num_agents) -> Tuple[BasePolicy, torch.optim.Optimizer, list]:
     

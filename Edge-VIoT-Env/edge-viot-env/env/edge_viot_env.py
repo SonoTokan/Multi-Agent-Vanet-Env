@@ -20,18 +20,32 @@ import numpy as np
 #     env = wrappers.OrderEnforcingWrapper(env)
 #     return env
 
-# # ignore
-# def raw_env(**kwargs):
-#     env = EdgeVIoTEnv(render_mode=kwargs.get("render_mode"))
-#     env = parallel_to_aec(env)
-#     return env
+def raw_env(render_mode = "ansi"):
+    env = EdgeVIoTEnv(render_mode=render_mode)
+    env = parallel_to_aec(env)
+    return env
+
+# def get_aec_env() -> AECEnv:
+#     parallel_env = MyParallelEnv()
+#     aec_env = parallel_to_aec(parallel_env)
+#     return aec_env
+
+    
 
 class EdgeVIoTEnv(ParallelEnv):
     metadata = {
         "name": "edge_viot_env_v0",
     }
     
-    def __init__(self, num_rsu=4, num_jobs=5, max_content=100, max_cache=10, current_time=0, render_mode="ansi"):
+    def __init__(
+        self,
+        num_rsu=4,
+        num_jobs=5,
+        max_content=100,
+        max_cache=10,
+        current_time=0,
+        render_mode="ansi"
+    ) -> None:
         # Init
         # self.num_rsu = 4
         # self.num_jobs = 5
@@ -92,13 +106,14 @@ class EdgeVIoTEnv(ParallelEnv):
         observation_space = spaces.Dict({
             'jobs': spaces.Box(low=0, high=1, shape=(num_rsu, num_jobs), dtype=np.float32),  # Job status for all RSUs
             'compute_capacity': spaces.Box(low=0, high=1, shape=(num_rsu,), dtype=np.float32),  # Compute capacity for all RSUs
-            'bandwidth': spaces.Box(low=0, high=1, shape=(num_rsu, num_jobs), dtype=np.float32),  # Bandwidth between RSUs and users
-            'cache': spaces.MultiDiscrete([max_content] * max_cache * num_rsu),  # Cache status for all RSUs
-            'user_trajectory': spaces.Box(low=0, high=1, shape=(num_jobs, 2), dtype=np.float32)  # User trajectory data after processing  
+            'bandwidth': spaces.Box(low=0, high=1, shape=(num_rsu,), dtype=np.float32),  # Bandwidth status for all RSUs
+            'cache': spaces.Box(low=0, high=1, shape=(num_rsu, max_cache), dtype=np.float32),  # Cache status for all RSUs, convert to discrete by * 100, eg 0.1 * 100 = 10, means cache id = 10
+            'user_trajectory': spaces.Box(low=0, high=1, shape=(num_jobs, 2), dtype=np.float32),  # User trajectory data after processing  
         })
         
         # self.action_spaces = dict(zip(self.agents, self.action_space))
-        self.observation_spaces = dict(zip(self.agents, observation_space))
+        self.observation_spaces = {agent: observation_space for agent in self.agents}
+        
         self.steps = 0
         self.closed = False
         pass
@@ -113,14 +128,15 @@ class EdgeVIoTEnv(ParallelEnv):
         
         # Reset the state of the environment to an initial state
         # Need Modify
-        observations = {
-            agent: {
-            'jobs': np.zeros((self.num_rsu, self.num_jobs), dtype=np.float32),
-            'compute_capacity': np.zeros((self.num_rsu,), dtype=np.float32),
-            'bandwidth': np.zeros((self.num_rsu, self.num_jobs), dtype=np.float32),
-            'cache': np.zeros((self.num_rsu, self.max_cache), dtype=np.float32),
-            'user_trajectory': spaces.Box(low=0, high=1, shape=(self.num_jobs, 2), dtype=np.float32)
-        } for agent in self.agents}
+        observation_space = spaces.Dict({
+            'jobs': spaces.Box(low=0, high=1, shape=(self.num_rsu, self.num_jobs), dtype=np.float32),  # Job status for all RSUs
+            'compute_capacity': spaces.Box(low=0, high=1, shape=(self.num_rsu,), dtype=np.float32),  # Compute capacity for all RSUs
+            'bandwidth': spaces.Box(low=0, high=1, shape=(self.num_rsu,), dtype=np.float32),  # Bandwidth status for all RSUs
+            'cache': spaces.Box(low=0, high=1, shape=(self.num_rsu, self.max_cache), dtype=np.float32),  # Cache status for all RSUs, convert to discrete by * 100, eg 0.1 * 100 = 10, means cache id = 10
+            'user_trajectory': spaces.Box(low=0, high=1, shape=(self.num_jobs, 2), dtype=np.float32)  # User trajectory data after processing
+        })
+                
+        observations = {agent: observation_space for agent in self.agents}
         
         infos = {agent: {} for agent in self.agents}
         self.state = observations
@@ -164,12 +180,12 @@ class EdgeVIoTEnv(ParallelEnv):
         # observation sample
         observations = {
             agent: {
-            'jobs': np.zeros((self.num_rsu, self.num_jobs), dtype=np.float32),
-            'compute_capacity': np.zeros((self.num_rsu,), dtype=np.float32),
-            'bandwidth': np.zeros((self.num_rsu, self.num_jobs), dtype=np.float32),
-            'cache': np.zeros((self.num_rsu, self.max_cache), dtype=np.float32),
-            'user_trajectory': spaces.Box(low=0, high=1, shape=(self.num_jobs, 2), dtype=np.float32)
-        } for agent in self.agents}
+                'jobs': np.random.random((self.num_rsu, self.num_jobs)),
+                'compute_capacity': np.random.random(self.num_rsu),
+                'bandwidth': np.random.random(self.num_rsu),
+                'cache': np.random.random((self.num_rsu, self.max_cache)),
+                'user_trajectory': np.random.random((self.num_jobs, 2))
+            } for agent in self.agents}
         
         
         # terminations = {agent: np.random.choice([True, False], p=[0.5, 0.5]) for agent in self.agents}
