@@ -16,29 +16,35 @@ from tianshou.utils import TensorboardLogger
 from torch.utils.tensorboard import SummaryWriter
 from edge_viot_env import EdgeVIoTEnv, raw_env
 
+
 def get_env() -> PettingZooEnv:
     return PettingZooEnv(raw_env())
 
+
 def get_agents(num_agents) -> Tuple[BasePolicy, torch.optim.Optimizer, list]:
-    
+
     env = get_env()
-    
+
     observation_space = (
         env.observation_space["observation"]
         if isinstance(env.observation_space, gymnasium.spaces.Dict)
         else env.observation_space
     )
-    
+
     if agent_learn is None:
         # model
         net = ActorCritic(
-            ActorProb(env.observation_space.shape, env.action_space.shape, hidden_sizes=[64, 64]),
-            Critic(env.observation_space.shape, hidden_sizes=[64, 64])
+            ActorProb(
+                env.observation_space.shape,
+                env.action_space.shape,
+                hidden_sizes=[64, 64],
+            ),
+            Critic(env.observation_space.shape, hidden_sizes=[64, 64]),
         )
-        
+
         if optim is None:
             optim = torch.optim.Adam(net.parameters(), lr=3e-4)
-            
+
         agent_learn = PPOPolicy(
             net,
             optim,
@@ -55,23 +61,26 @@ def get_agents(num_agents) -> Tuple[BasePolicy, torch.optim.Optimizer, list]:
             value_clip=True,
             dual_clip=None,
             advantage_normalization=True,
-            recompute_advantage=True
+            recompute_advantage=True,
         )
-        
+
     agents = [agent_learn for _ in range(num_agents)]
-    
+
     policy = MultiAgentPolicyManager(agents, env)
     return policy, optim, env.agents
 
-def train(model_save_path: str,
-          num_steps: int = 10_000,
-          logdir: str = "log",
-          training_num: int = 1,
-          test_num: int = 1,
-          seed: int = 114514,
-          buffer_size: int = 20_000,
-          batch_size: int = 64):
-    
+
+def train(
+    model_save_path: str,
+    num_steps: int = 10_000,
+    logdir: str = "log",
+    training_num: int = 1,
+    test_num: int = 1,
+    seed: int = 114514,
+    buffer_size: int = 20_000,
+    batch_size: int = 64,
+):
+
     # Initialize the custom PettingZoo environment
     env = get_env()
 
@@ -133,16 +142,17 @@ def train(model_save_path: str,
     log_path = os.path.join(logdir, "viot", "ppo")
     writer = SummaryWriter(log_path)
     logger = TensorboardLogger(writer)
-    
-    # ======== callback functions ======== 
+
+    # ======== callback functions ========
     def save_best_fn(policy):
         # save num_agents policy
         for i in range(len(agents)):
             torch.save(
-                policy.policies[agents[i]].state_dict(), os.path.join(model_save_path, f"policy_{agents[i]}.pth")
+                policy.policies[agents[i]].state_dict(),
+                os.path.join(model_save_path, f"policy_{agents[i]}.pth"),
             )
-    
-    # ======== train the policy ======== 
+
+    # ======== train the policy ========
     # result = onpolicy_trainer(
     #     policy,
     #     train_collector,
@@ -155,7 +165,7 @@ def train(model_save_path: str,
     #     step_per_collect=10,
     #     save_best_fn=save_best_fn
     # )
-    
+
     result = onpolicy_trainer(
         policy,
         train_collector,
@@ -173,8 +183,9 @@ def train(model_save_path: str,
         logger=logger,
         test_in_train=False,
     )
-    
+
     print(f'Training finished! Use {result["duration"]}')
+
 
 if __name__ == "__main__":
     result, agent = train("model", num_steps=10_000)

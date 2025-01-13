@@ -28,7 +28,7 @@ def train(env, steps: int = 10_000, seed: int | None = 0):
     print("Model has been saved.")
 
     print("Finished training.")
-    
+
     env.close()
 
 
