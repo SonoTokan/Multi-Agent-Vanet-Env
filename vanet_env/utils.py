@@ -1,18 +1,23 @@
 import sys
 
 sys.path.append("./")
-
+from vanet_env import config
+import numpy as np
 import matplotlib as mpl
 from svgpathtools import svg2paths
 from svgpath2mpl import parse_path
+
 import os
 
 # Load the images
+print("img_load_called")
+
 rsu_img_path = os.path.join(os.path.dirname(__file__), "assets", "rsu.svg")
 vehicle_img_path = os.path.join(os.path.dirname(__file__), "assets", "vehicle.svg")
 
 rsu_path, rsu_attributes = svg2paths(rsu_img_path)
 vehicle_path, vehicle_attributes = svg2paths(vehicle_img_path)
+
 
 RSU_MARKER = parse_path(
     """"M 310.62,161.12
@@ -142,3 +147,13 @@ RSU_MARKER = RSU_MARKER.transformed(mpl.transforms.Affine2D().scale(-1, 1))
 
 # VEHICLE_MARKER = VEHICLE_MARKER.transformed(mpl.transforms.Affine2D().rotate_deg(180))
 # VEHICLE_MARKER = VEHICLE_MARKER.transformed(mpl.transforms.Affine2D().scale(-1, 1))
+
+
+# canva distance to real distance
+def distanceToRealDistance(distance):
+    return distance / (1000 / config.COORDINATE_UNIT)
+
+
+# real distance to canva distance
+def realDistanceToDistance(real_distance):
+    return real_distance * (1000 / config.COORDINATE_UNIT)

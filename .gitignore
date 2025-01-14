@@ -24,3 +24,6 @@ venv.bak/
 .idea/
 *.iml
 dev.env
+
+# 忽略日志和临时文件
+*.restats
