@@ -20,6 +20,8 @@ class Env(ParallelEnv):
     def __init__(self, render_pause_time=0.001):
         self.num_rsu = config.NUM_RSU
         self.num_vh = config.NUM_VEHICLES / 2
+        self.max_size = config.MAP_SIZE
+        self.road_width = config.ROAD_WIDTH
         # init rsus
         self.rsus = [
             Rsu(
@@ -37,13 +39,32 @@ class Env(ParallelEnv):
             for i in range(int(self.num_vh))
         ]
         # init roads
-        road1 = plt.Rectangle((0, 4), 29, 2, linewidth=1, facecolor="gray")
-        road2 = plt.Rectangle((0, 11.25), 29, 2, linewidth=1, facecolor="gray")
-        road3 = plt.Rectangle((6.25, 0), 2, 18.5, linewidth=1, facecolor="gray")
-        road4 = plt.Rectangle((20.75, 0), 2, 18.5, linewidth=1, facecolor="gray")
-        self.roads = [road1, road2, road3, road4]
+        self.roads = []
+        # horizontal road centered at RSU
+        # may modify to class
+        for rsu in self.rsus:
+            x = rsu.position[0]
+            y = rsu.position[1]
 
-        # exsample, random vehicle position using random_point_within_rectangle
+            road_horizontal = plt.Rectangle(
+                (x - self.road_width * 5, y - self.road_width / 2),
+                self.road_width * 10,
+                self.road_width,
+                facecolor="gray",
+            )
+
+            road_vertical = plt.Rectangle(
+                (x - self.road_width / 2, y - self.road_width * 5),
+                self.road_width,
+                self.road_width * 10,
+                facecolor="gray",
+            )
+
+            rsu.bind_road.append(road_horizontal)
+            rsu.bind_road.append(road_vertical)
+            self.roads.append(road_horizontal)
+            self.roads.append(road_vertical)
+
         vehicle_positions = [
             self.random_point_within_rectangle(
                 self.roads[np.random.randint(0, len(self.roads))]
@@ -60,15 +81,15 @@ class Env(ParallelEnv):
         self.rsu_positions = [rsu.position for rsu in self.rsus]
 
         # canvas max distance
-        self.max_distance = network.max_distance(self.rsus[0])
+        self.max_distance = network.max_distance_mbps(self.rsus[0], 4)
 
         # render parameters
         self.pause_time = render_pause_time
         self.fig, self.ax = plt.subplots()
 
         # Set limits
-        self.ax.set_xlim(0, 30)
-        self.ax.set_ylim(0, 18)
+        self.ax.set_xlim(0, self.max_size[0])
+        self.ax.set_ylim(0, self.max_size[1])
         self.ax.set_aspect("equal")
         pass
 
@@ -152,7 +173,7 @@ class Env(ParallelEnv):
         # RSU positions
 
         # Draw the RSUs and their communication ranges
-        for idx, rsu in enumerate(rsus):
+        for rsu in rsus:
             ax.plot(
                 rsu.position[0],
                 rsu.position[1],
@@ -160,10 +181,8 @@ class Env(ParallelEnv):
                 markersize=30,
                 markeredgewidth=0.1,
             )
-            # Draw the RSU ID
-            bs_id = f"RSU {idx+1}"
             ax.annotate(
-                bs_id,
+                rsu.id,
                 xy=(rsu.position[0], rsu.position[1]),
                 xytext=(0, -25),
                 ha="center",

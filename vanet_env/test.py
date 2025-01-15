@@ -7,6 +7,7 @@ from pettingzoo.test import parallel_api_test
 from vanet_env.env import Env
 from vanet_env.entites import Rsu, Vehicle
 from vanet_env import utils
+from vanet_env import network
 from network import channel_capacity
 
 
@@ -26,13 +27,18 @@ def print_stats():
 
 def network_test():
     # real distance (km)
-    step = 0.01
+    step = 0.001
     rsu = Rsu(1, (0, 0))
     while step <= 0.5:
         vh = Vehicle(1, (utils.realDistanceToDistance(step), 0))
-        print(f"real_distance: {step:.2f} km, {channel_capacity(rsu, vh):.2f} Mbps")
-        step += 0.05
+        print(f"real_distance: {step*1000:.2f} m, {channel_capacity(rsu, vh):.2f} Mbps")
+        step += 0.01
     pass
+
+
+def path_loss_test():
+    winnerb1 = network.WinnerB1()
+    winnerb1.test()
 
 
 def render_test():
@@ -47,9 +53,10 @@ def test():
 
 
 if __name__ == "__main__":
+    # path_loss_test()
+    # network_test()
     test()
-    network_test()
-
+    # test()
     # print_stats()
     pass
     # env = Env()

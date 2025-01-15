@@ -157,3 +157,5 @@ def distanceToRealDistance(distance):
 # real distance to canva distance
 def realDistanceToDistance(real_distance):
     return real_distance * (1000 / config.COORDINATE_UNIT)
+
+# 

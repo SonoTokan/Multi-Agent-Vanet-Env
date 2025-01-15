@@ -9,16 +9,22 @@ sys.path.append("./")
 #         self.path_loss = "OkumuraHata"
 #         self.rsu = Rsu()
 
+# Canvas Size
+MAP_SIZE = (400, 400)
+
+# Road Config
+# Road width (meters)
+ROAD_WIDTH = 20
 
 # RSU Config
 NUM_RSU = 6
 RSU_POSITIONS = [
-    (6.25, 4),
-    (6.25, 11.25),  # Intersection 1
-    (13.5, 4),
-    (20.75, 4),
-    (20.75, 11.25),  # Intersection 2
-    (13.5, 11.25),
+    (100, 100),
+    (100, 200),
+    (200, 100),
+    (200, 200),
+    (300, 100),
+    (300, 200),
 ]
 
 # Rsu Config
@@ -33,9 +39,9 @@ RSU_NOISE_POWER = 1e-9
 # Max Transmitted Bandwidth (( B )): 20 MHz, i.e. 20e6 Hz
 RSU_MAX_TRANSMITTED_BANDWIDTH = 20e6
 # Frequency (( f )): 2.4, 5.9 GHz, i.e. 2400 MHz, 5905 MHz
-RSU_FREQUENCY = 900
+RSU_FREQUENCY = 5905
 # Antenna Height
-RSU_ANTENNA_HEIGHT = 30
+RSU_ANTENNA_HEIGHT = 10
 # Path loss exponent (( n )): 3
 RSU_PATH_LOSS_EXPONENT = 3
 # Reference distance 1 meters
@@ -43,7 +49,9 @@ RSU_REFERENCE_DISTANCE = 1e-3
 # Path loss at reference distance (( PL(d_0) )): 40 dB
 RSU_PATH_LOSS_REFERENCE_DISTANCE = 40
 # SNR threshold
-RSU_SNR_THRESHOLD = 2e-3
+RSU_SNR_THRESHOLD = 2e-8
+# MIMO, numbers of antenna
+RSU_NUM_ANTENNA = 4
 
 # Vehicle Config
 NUM_VEHICLES = 50
@@ -53,4 +61,7 @@ VEHICLE_ANTENNA_HEIGHT = 1.5
 # Render Config
 
 # Coordinate unit (meters)
-COORDINATE_UNIT = 100
+COORDINATE_UNIT = 1
+
+# freespace speed of light (m/s)
+C = 3e8
