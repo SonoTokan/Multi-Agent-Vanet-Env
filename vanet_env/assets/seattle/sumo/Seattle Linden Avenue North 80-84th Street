@@ -1,0 +1,3 @@
+from Seattle Linden Avenue North 80-84th Street
+convert to standardized
+netconvert --net-file your_network.net.xml --offset.x -1000 --offset.y -2000 --scale 1 --output-file standardized.net.xml

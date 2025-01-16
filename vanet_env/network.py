@@ -349,7 +349,9 @@ def bpsToMbps(bps):
     return bps / 1e6
 
 
+# ofdm+mimo single channel
 # Calculate data rate:
 # C=Blog2​(1+SNR)
 def channel_capacity(rsu: Rsu, vh: Vehicle, bw=config.RSU_MAX_TRANSMITTED_BANDWIDTH):
+
     return bpsToMbps(bw * np.log2(1 + snr(rsu, vh)))

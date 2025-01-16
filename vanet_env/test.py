@@ -1,14 +1,19 @@
+import io
+import os
+import pstats
 import sys
 
 sys.path.append("./")
 
 import cProfile
 from pettingzoo.test import parallel_api_test
-from vanet_env.env import Env
+from env_sumo import Env
 from vanet_env.entites import Rsu, Vehicle
 from vanet_env import utils
 from vanet_env import network
 from network import channel_capacity
+import osmnx as ox
+import matplotlib.pyplot as plt
 
 
 def run_time_test():
@@ -52,15 +57,25 @@ def test():
     env.test()
 
 
-if __name__ == "__main__":
-    # path_loss_test()
-    # network_test()
-    test()
-    # test()
-    # print_stats()
-    pass
-    # env = Env()
-    # parallel_api_test(env, num_cycles=1_000_000)
+def osmx_test():
 
-    # env = Env()
-    # parallel_api_test(env, num_cycles=1_000_000)
+    file_path = os.path.join(os.path.dirname(__file__), "assets", "seattle", "map.osm")
+    G = ox.graph_from_xml(file_path)
+
+    fig, ax = ox.plot_graph(G, node_size=5, edge_linewidth=0.5)
+    plt.show()
+
+
+# 3600s takes 25 seconds if render_mode = None
+# fps 144?
+def sumo_env_test():
+    # render_mode="human", None
+    env = Env(None)
+    for i in range(3600):
+        env.step([])
+        env.render()
+
+
+if __name__ == "__main__":
+    cProfile.run("sumo_env_test()")
+    pass

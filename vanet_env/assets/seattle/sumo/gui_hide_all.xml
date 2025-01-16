@@ -1,0 +1,11 @@
+<viewsettings>
+    <scheme name="default">
+        <view>
+            <show value="background" />
+            <show value="edges" />
+            <show value="nodes" />
+            <show value="vehicles" />
+            <show value="none" /> <!-- 隐藏其他控件 -->
+        </view>
+    </scheme>
+</viewsettings>

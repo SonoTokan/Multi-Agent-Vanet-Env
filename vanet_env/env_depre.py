@@ -15,13 +15,15 @@ from vanet_env.entites import Rsu, Vehicle
 
 
 class Env(ParallelEnv):
-    metadata = {"render_modes": ["human"]}
+    metadata = {"render_modes": ["human", None]}
 
-    def __init__(self, render_pause_time=0.001):
+    def __init__(self, render_pause_time=0.001, render_mode=None):
         self.num_rsu = config.NUM_RSU
         self.num_vh = config.NUM_VEHICLES / 2
         self.max_size = config.MAP_SIZE
         self.road_width = config.ROAD_WIDTH
+        self.render_mode = render_mode
+
         # init rsus
         self.rsus = [
             Rsu(
@@ -202,6 +204,6 @@ class Env(ParallelEnv):
         for rsu in self.rsus:
             for vh in rsu.connected_vehicles:
                 print(
-                    f"rsu {rsu.id} - vh {vh.id} distance {rsu.real_distance(vh.position)} km, channel capacity {network.channel_capacity(rsu, vh) } Mbps"
+                    f"rsu {rsu.id} - vh {vh.id} distance {rsu.distance(vh.position):.2f} m, channel capacity {network.channel_capacity(rsu, vh):.2f} Mbps"
                 )
         pass
