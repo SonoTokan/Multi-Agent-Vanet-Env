@@ -2,6 +2,8 @@ import sys
 
 sys.path.append("./")
 
+print("config loaded")
+
 # from vanet_env.entites import Rsu, Vehicle
 
 # class Config:
@@ -14,24 +16,21 @@ MAP_SIZE = (400, 400)
 
 # Road Config
 # Road width (meters)
-ROAD_WIDTH = 20
+ROAD_WIDTH = 10
 
-# RSU Config
+# RSU Config, road align 77
 
-RSU_POSITIONS = [
-    (100, 16),
-    (100, 116),
-    (100, 216),
-    (100, 316),
-    (200, 16),
-    (200, 116),
-    (200, 216),
-    (200, 316),
-    (300, 16),
-    (300, 116),
-    (300, 216),
-    (300, 316),
-]
+RSU_POSITIONS = []
+
+# roadside_down
+for x in range(0, 400, 100):
+    for y in range(0, 77 * 5, 77):
+        RSU_POSITIONS.append((x, y))
+
+# roadside_up
+# for x in range(0, 400, 100):
+#     for y in range(17, (77 + 17) * 5, 77 + 17):
+#         RSU_POSITIONS.append((x, y))
 
 NUM_RSU = len(RSU_POSITIONS)
 
@@ -60,6 +59,8 @@ RSU_PATH_LOSS_REFERENCE_DISTANCE = 40
 RSU_SNR_THRESHOLD = 2e-8
 # MIMO, numbers of antenna
 RSU_NUM_ANTENNA = 4
+# Data rate threshold
+DATA_RATE_TR = 8
 
 # Vehicle Config
 NUM_VEHICLES = 50

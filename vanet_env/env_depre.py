@@ -11,7 +11,7 @@ import numpy as np
 
 from vanet_env import config, network
 from vanet_env.utils import RSU_MARKER, VEHICLE_MARKER
-from vanet_env.entites import Rsu, Vehicle
+from vanet_env.entites import Rsu, CustomVehicle
 
 
 class Env(ParallelEnv):
@@ -34,7 +34,7 @@ class Env(ParallelEnv):
         ]
         # init vhs
         self.vehicles = [
-            Vehicle(
+            CustomVehicle(
                 id=i,
                 position=(0, 0),
             )
@@ -45,8 +45,8 @@ class Env(ParallelEnv):
         # horizontal road centered at RSU
         # may modify to class
         for rsu in self.rsus:
-            x = rsu.position[0]
-            y = rsu.position[1]
+            x = rsu.position.x
+            y = rsu.position.y
 
             road_horizontal = plt.Rectangle(
                 (x - self.road_width * 5, y - self.road_width / 2),
@@ -76,7 +76,7 @@ class Env(ParallelEnv):
 
         # copy to object, may take some performance issue
         self.vehicles = [
-            Vehicle(id=i, position=pos) for i, pos in enumerate(vehicle_positions)
+            CustomVehicle(id=i, position=pos) for i, pos in enumerate(vehicle_positions)
         ]
 
         # for convience
@@ -129,8 +129,8 @@ class Env(ParallelEnv):
             print(f"Drawing vehicle at position: {vh.position}")
 
             ax.plot(
-                vh.position[0],
-                vh.position[1],
+                vh.position.x,
+                vh.position.y,
                 marker=VEHICLE_MARKER,
                 markersize=40,
                 markeredgewidth=0.1,
@@ -140,7 +140,7 @@ class Env(ParallelEnv):
             vh_id = f"VH {vh.id}"
             ax.annotate(
                 vh_id,
-                xy=(vh.position[0], vh.position[1]),
+                xy=(vh.position.x, vh.position.y),
                 xytext=(0, -25),
                 ha="center",
                 va="bottom",
@@ -157,8 +157,8 @@ class Env(ParallelEnv):
                 if distance <= self.max_distance:  # If within communication range
                     self.rsus[idx].connected_vehicles.append(vh)
                     plt.plot(
-                        [vh.position[0], rsu.position[0]],
-                        [vh.position[1], rsu.position[1]],
+                        [vh.position.x, rsu.position.x],
+                        [vh.position.y, rsu.position.y],
                         "g--",
                     )
 
@@ -177,15 +177,15 @@ class Env(ParallelEnv):
         # Draw the RSUs and their communication ranges
         for rsu in rsus:
             ax.plot(
-                rsu.position[0],
-                rsu.position[1],
+                rsu.position.x,
+                rsu.position.y,
                 marker=RSU_MARKER,
                 markersize=30,
                 markeredgewidth=0.1,
             )
             ax.annotate(
                 rsu.id,
-                xy=(rsu.position[0], rsu.position[1]),
+                xy=(rsu.position.x, rsu.position.y),
                 xytext=(0, -25),
                 ha="center",
                 va="bottom",

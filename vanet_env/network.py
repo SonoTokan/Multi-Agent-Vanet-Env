@@ -1,8 +1,10 @@
 import sys
 
+from shapely import Point
+
 sys.path.append("./")
 from vanet_env import config
-from vanet_env.entites import Rsu, Vehicle
+from vanet_env.entites import Rsu, CustomVehicle, Vehicle
 from vanet_env import utils
 import numpy as np
 
@@ -14,7 +16,8 @@ class OkumuraHata:
         pass
 
     # Okumura-Hata path Loss another version (from github)
-    def power_loss(self, rsu: Rsu, vh: Vehicle):
+    # may have some bugs not fixed
+    def power_loss(self, rsu: Rsu, vh: CustomVehicle):
         distance = rsu.real_distance(vh.position)
 
         ch = (
@@ -33,7 +36,8 @@ class OkumuraHata:
     # distance (km)
     # Okumura-Hata path Loss
     # Lb​=69.55+26.16log10​(f)−13.82log10​(hb​)−a(hm​)+(44.9−6.55log10​(hb​))log10​(d)
-    def okumura_hata_path_loss(self, rsu: Rsu, vh: Vehicle, city_type="small"):
+    # may have some bugs not fixed
+    def okumura_hata_path_loss(self, rsu: Rsu, vh: CustomVehicle, city_type="small"):
         distance = rsu.real_distance(vh.position)
 
         if city_type == "large":
@@ -110,7 +114,7 @@ class WinnerB1:
     def __init__(
         self,
         building_height=20,
-        street_width=20,
+        street_width=config.ROAD_WIDTH,
         building_separation=50,
         street_orientation=30,
     ):
@@ -121,7 +125,7 @@ class WinnerB1:
         pass
 
     # deprecated
-    def path_loss_deprecated(self, rsu: Rsu, vh: Vehicle):
+    def path_loss_deprecated(self, rsu: Rsu, vh: CustomVehicle):
         distance = rsu.real_distance(vh.position)
         frequency = rsu.frequency
         base_station_height = rsu.height
@@ -215,7 +219,7 @@ class WinnerB1:
         if d1 <= 10:
             d1 = 11
 
-        w = 20  # Street width in meters
+        w = self.street_width  # Street width in meters
         if d2 <= w / 2:
             return self.path_loss_los(d1, fc_ghz, h_BS, h_MS)
 
@@ -284,7 +288,7 @@ def snr(rsu: Rsu, vh: Vehicle, path_loss_func="winner_b1"):
     # )
 
     if path_loss_func == "winner_b1":
-        d1, d2 = rsu.get_d1_d2(vh.position, vh.direction)
+        d1, d2 = rsu.get_d1_d2(vh.get_position(), vh.get_angle())
         path_loss = WinnerB1().path_loss_nlos(
             d1, d2, rsu.frequency * 1e-3, rsu.height, vh.height
         )
@@ -303,27 +307,27 @@ def snr(rsu: Rsu, vh: Vehicle, path_loss_func="winner_b1"):
 def max_distance(rsu: Rsu):
     max_distance = 0
     step = 0.001  # km
-    distance = utils.realDistanceToDistance(step)
+    distance = utils.real_distance_to_distance(step)
 
     while True:
-        vh = Vehicle(0, (rsu.position[0] + distance, rsu.position[1]))
+        vh = CustomVehicle(0, Point((rsu.position.x + distance, rsu.position.y)))
 
         if snr(rsu, vh) < rsu.snr_threshold:
             break
 
         max_distance = distance
-        distance += utils.realDistanceToDistance(step)
+        distance += utils.real_distance_to_distance(step)
 
     return max_distance
 
 
-def max_distance_mbps(rsu: Rsu, rate_tr=8):
+def max_distance_mbps(rsu: Rsu, rate_tr=config.DATA_RATE_TR):
     max_distance = 0
     step = 1  # m
     distance = step
 
     while True:
-        vh = Vehicle(0, (rsu.position[0] + distance, rsu.position[1]))
+        vh = CustomVehicle(0, Point((rsu.position.x + distance, rsu.position.y)))
 
         rate = channel_capacity(rsu, vh)
         if rate <= rate_tr:
@@ -333,6 +337,16 @@ def max_distance_mbps(rsu: Rsu, rate_tr=8):
         distance += step
 
     return max_distance
+
+
+# not sure
+def max_rate(rsu: Rsu):
+    distance = 1
+    vh = CustomVehicle(0, Point((rsu.position.x + distance, rsu.position.y)))
+
+    max_rate = channel_capacity(rsu, vh)
+
+    return max_rate
 
 
 # convert db to dbm

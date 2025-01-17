@@ -150,12 +150,48 @@ RSU_MARKER = RSU_MARKER.transformed(mpl.transforms.Affine2D().scale(-1, 1))
 
 
 # canva distance to real distance
-def distanceToRealDistance(distance):
+def distance_to_real_distance(distance):
     return distance / (1000 / config.COORDINATE_UNIT)
 
 
 # real distance to canva distance
-def realDistanceToDistance(real_distance):
+def real_distance_to_distance(real_distance):
     return real_distance * (1000 / config.COORDINATE_UNIT)
 
-# 
+
+# detect sumo env
+def sumo_detector():
+    if "SUMO_HOME" in os.environ:
+        tools = os.path.join(os.environ["SUMO_HOME"], "tools")
+        sys.path.append(tools)
+    else:
+        sys.exit("please declare environment variable 'SUMO_HOME'")
+
+
+def interpolate_color(min_val, max_val, value):
+    """
+    Linear interpolation between red, yellow and green according to the given values.
+
+    :param min_val: minimum value
+    :param max_val: maximum value
+    :param value: current value
+    :return: (r, g, b) color value
+    """
+    # Insure in range
+    value = max(min_val, min(max_val, value))
+
+    # Compute ratio
+    ratio = (value - min_val) / (max_val - min_val)
+
+    if ratio < 0.5:
+        # Red to yellow
+        r = 255
+        g = int(255 * (ratio * 2))
+        b = 0
+    else:
+        # Yellow to green
+        r = int(255 * (2 - ratio * 2))
+        g = 255
+        b = 0
+
+    return (r, g, b)

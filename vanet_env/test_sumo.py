@@ -36,8 +36,8 @@ for rsu in rsus:
     # add icon
     traci.poi.add(
         poi_id,
-        rsu.position[0],
-        rsu.position[1],
+        rsu.position.x,
+        rsu.position.y,
         (255, 0, 0, 255),
         width=20,
         height=20,
@@ -53,10 +53,10 @@ for rsu in rsus:
     for i in range(num_segments):
         angle1 = 2 * np.pi * i / num_segments
         angle2 = 2 * np.pi * (i + 1) / num_segments
-        x1 = rsu.position[0] + rsu_range * np.cos(angle1)
-        y1 = rsu.position[1] + rsu_range * np.sin(angle1)
-        x2 = rsu.position[0] + rsu_range * np.cos(angle2)
-        y2 = rsu.position[1] + rsu_range * np.sin(angle2)
+        x1 = rsu.position.x + rsu_range * np.cos(angle1)
+        y1 = rsu.position.y + rsu_range * np.sin(angle1)
+        x2 = rsu.position.x + rsu_range * np.cos(angle2)
+        y2 = rsu.position.y + rsu_range * np.sin(angle2)
         traci.polygon.add(
             f"circle_segment_rsu{rsu.id}_{i}",
             [(x1, y1), (x2, y2)],
@@ -82,8 +82,8 @@ for step in range(3600):
         vehicle_x, vehicle_y = traci.vehicle.getPosition(vehicle_id)
 
         for rsu in rsus:
-            rsu_x = rsu.position[0]
-            rsu_y = rsu.position[1]
+            rsu_x = rsu.position.x
+            rsu_y = rsu.position.y
             # 计算车辆与RSU的距离
             distance = np.sqrt((vehicle_x - rsu_x) ** 2 + (vehicle_y - rsu_y) ** 2)
 

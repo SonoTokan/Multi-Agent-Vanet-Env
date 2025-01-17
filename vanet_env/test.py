@@ -3,12 +3,14 @@ import os
 import pstats
 import sys
 
+from shapely import Point
+
 sys.path.append("./")
 
 import cProfile
 from pettingzoo.test import parallel_api_test
-from env_sumo import Env
-from vanet_env.entites import Rsu, Vehicle
+from gym_env_sumo import Env
+from vanet_env.entites import Rsu, CustomVehicle
 from vanet_env import utils
 from vanet_env import network
 from network import channel_capacity
@@ -35,7 +37,7 @@ def network_test():
     step = 0.001
     rsu = Rsu(1, (0, 0))
     while step <= 0.5:
-        vh = Vehicle(1, (utils.realDistanceToDistance(step), 0))
+        vh = CustomVehicle(1, Point((utils.real_distance_to_distance(step), 0)))
         print(f"real_distance: {step*1000:.2f} m, {channel_capacity(rsu, vh):.2f} Mbps")
         step += 0.01
     pass
@@ -67,15 +69,34 @@ def osmx_test():
 
 
 # 3600s takes 25 seconds if render_mode = None
+# 112293666 function calls in 97.557 seconds if render_mode = None when take _manage_rsu_vehicle_connections()
+# 13864794 function calls in 6.782 seconds if render_mode = None without _manage_rsu_vehicle_connections()
+# 3600s takes 105.441 seconds if render_mode = "human"
+# 3600s takes 137.505 seconds if render lines by logical
+# 3600s takes 136.182 seconds if using kdTree
+# 3600s: 93277269 function calls in 125.288 seconds if using kdTree
+# 3600s: 135685748 function calls in 111.391 seconds using new logical and min window
+# 500s takes 16.412 seconds if render lines by logical
+# 500s takes 16.939 seconds if using kdTree
+# 500s takes 17.127 seconds using new logical
+#
+# 500 step-normal: 1,920,955 function calls in 1.502 seconds
+# 500 step-getPos: 2,725,563 function calls in 4.650 seconds
+# 500 step-getPos-logical: 12,153,777 function calls in 10.417 seconds
+# 500 step-getPos-hasTree-logical: 8,218,740 function calls in 7.415 seconds
+# 500 step-getPos-hasTree-logical-delete-render: 3,926,358 function calls in 4.180 seconds
+# 500 step-logical: 14,373,235 function calls in 12.490 seconds
+
+
 # fps 144?
 def sumo_env_test():
     # render_mode="human", None
-    env = Env(None)
-    for i in range(3600):
+    env = Env("human")
+    for i in range(500):
         env.step([])
         env.render()
 
 
 if __name__ == "__main__":
-    cProfile.run("sumo_env_test()")
+    cProfile.run("sumo_env_test()", sort="time")
     pass
