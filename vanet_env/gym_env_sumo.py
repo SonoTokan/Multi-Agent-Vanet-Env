@@ -12,19 +12,29 @@ import matplotlib.transforms as transforms
 import numpy as np
 from scipy.spatial import KDTree
 
+# gym
+import gymnasium as gym
+from gymnasium import spaces
+
+# custom
 from vanet_env import config, network
 from vanet_env.utils import RSU_MARKER, VEHICLE_MARKER, interpolate_color, sumo_detector
 from vanet_env.entites import Connection, Rsu, CustomVehicle, Vehicle
+from test import multiprocess as mp_funcs
+
+# sumo
 import traci
 import libsumo
 from sumolib import checkBinary
-import multiprocessing
+
+# next performance improvement
+import multiprocessing as mp
 
 
 class Env(ParallelEnv):
     metadata = {"render_modes": ["human", None]}
 
-    def __init__(self, render_mode="human"):
+    def __init__(self, render_mode="human", multi_core=8):
         # SUMO detector
         sumo_detector()
 
@@ -33,6 +43,7 @@ class Env(ParallelEnv):
         self.max_size = config.MAP_SIZE
         self.road_width = config.ROAD_WIDTH
         self.render_mode = render_mode
+        self.multi_core = multi_core
 
         cfg_file_path = os.path.join(
             os.path.dirname(__file__), "assets", "seattle", "sumo", "osm.sumocfg"
@@ -73,6 +84,9 @@ class Env(ParallelEnv):
         # canvas max distance
         self.max_distance = network.max_distance_mbps(self.rsus[0], 4)
         self.sumo = traci
+
+        # sapces
+        self._space_init()
 
         # start sumo sim
         if self.render_mode is not None:
@@ -122,7 +136,173 @@ class Env(ParallelEnv):
             # traci.start([sumoBinary, "-c", cfg_file_path])
         pass
 
+    def _space_init(self, aggregated=False):
+
+        compute_resources_low = 0.0
+        compute_resources_high = 1.0
+        bandwidth_low = 0.0
+        bandwidth_high = 1.0
+        job_state_low = 0.0
+        job_state_high = 1.0
+        connection_state_low = 0.0
+        connection_state_high = 1.0
+        # important
+        self.max_connections = 10
+        self.max_content = 100
+        self.max_caching = 10
+        # rsu range veh wait for connections
+        self.max_queue_len = 10
+        # every single weight
+        self.max_weight = 100
+
+        # state need veh、job info
+
+        # aggregated
+        if aggregated:
+            self.single_state_space = spaces.Dict(
+                {
+                    "compute_resources": spaces.Box(
+                        low=compute_resources_low,
+                        high=compute_resources_high,
+                        shape=(self.num_rsu,),
+                        dtype=np.float32,
+                    ),
+                    "bandwidth": spaces.Box(
+                        low=bandwidth_low,
+                        high=bandwidth_high,
+                        shape=(self.num_rsu,),
+                        dtype=np.float32,
+                    ),
+                    "avg_job_state": spaces.Box(
+                        low=job_state_low,
+                        high=job_state_high,
+                        shape=(self.num_rsu,),
+                        dtype=np.float32,
+                    ),
+                    "avg_connection_state": spaces.Box(
+                        low=connection_state_low,
+                        high=connection_state_high,
+                        shape=(self.num_rsu,),
+                        dtype=np.float32,
+                    ),
+                }
+            )
+
+            initial_state = {
+                "compute_resources": np.random.uniform(
+                    compute_resources_low, compute_resources_high, self.num_rsu
+                ),
+                "bandwidth": np.random.uniform(
+                    bandwidth_low, bandwidth_high, self.num_rsu
+                ),
+                "avg_job_state": np.random.uniform(
+                    job_state_low, job_state_high, self.num_rsu
+                ),
+                "avg_connection_state": np.random.uniform(
+                    connection_state_low, connection_state_high, self.num_rsu
+                ),
+            }
+
+        else:
+            self.single_state_space = spaces.Dict(
+                {
+                    "compute_resources": spaces.Box(
+                        low=compute_resources_low,
+                        high=compute_resources_high,
+                        shape=(self.num_rsu,),
+                        dtype=np.float32,
+                    ),
+                    "bandwidth": spaces.Box(
+                        low=bandwidth_low,
+                        high=bandwidth_high,
+                        shape=(self.num_rsu,),
+                        dtype=np.float32,
+                    ),
+                    "job_state": spaces.Box(
+                        low=job_state_low,
+                        high=job_state_high,
+                        shape=(self.num_rsu, self.max_connections),
+                        dtype=np.float32,
+                    ),
+                    "connection_state": spaces.Box(
+                        low=connection_state_low,
+                        high=connection_state_high,
+                        shape=(self.num_rsu, self.max_connections),
+                        dtype=np.float32,
+                    ),
+                }
+            )
+            ...
+        job_handling_space = spaces.MultiDiscrete(
+            [self.num_rsu + 2] * self.max_connections
+        )
+
+        # connection policy
+        connection_space = spaces.MultiBinary(self.max_connections)
+
+        # compute policy
+        compute_allocation_space = spaces.Box(
+            low=0.0, high=1.0, shape=(self.max_connections,), dtype=np.float32
+        )
+
+        # bw policy
+        bandwidth_allocation_space = spaces.Box(
+            low=0.0, high=1.0, shape=(self.max_connections,), dtype=np.float32
+        )
+
+        # caching policy
+        caching_decision_space = spaces.MultiDiscrete(
+            [self.max_content] * self.max_caching
+        )
+
+        # tuple action space
+        self.tuple_action_space = spaces.Tuple(
+            (
+                job_handling_space,
+                connection_space,
+                compute_allocation_space,
+                bandwidth_allocation_space,
+            )
+        )
+
+        # Dict action space
+        self.dict_action_space = spaces.Dict(
+            {
+                "job_handling": job_handling_space,
+                "connection": connection_space,
+                "compute_allocation": compute_allocation_space,
+                "bandwidth_allocation": bandwidth_allocation_space,
+                "caching_decision": caching_decision_space,
+            }
+        )
+
+        # MultiDiscrete action space
+        # job_handling
+        # Action selection is followed by normalization to ensure that the sum of allocated resources is 1
+        md_jh_space_shape = spaces.MultiDiscrete([2] * self.max_connections)
+        # computing power allocation, value means weight
+        md_ca_space = spaces.MultiDiscrete([self.max_weight] * self.max_connections)
+        # bandwidth allocation
+        md_bw_space = spaces.MultiDiscrete([self.max_weight] * self.max_connections)
+        # caching_decision
+        md_cd_space = spaces.MultiDiscrete([self.max_content] * self.max_caching)
+
+        # combined
+        md_combined_space = spaces.MultiDiscrete(
+            [2] * self.max_connections
+            + [self.max_weight] * self.max_connections
+            + [self.max_weight] * self.max_connections
+            + [self.max_content] * self.max_caching
+        )
+
+        self.md_action_space = md_combined_space
+
+        print(
+            f"action sample{self.md_action_space.sample()}, obs sample{self.single_state_space.sample()}"
+        )
+
     def reset(self, seed=None, options=None):
+        # may not need
         self.sumo.close()
         pass
 
@@ -137,22 +317,26 @@ class Env(ParallelEnv):
         ]
 
         self._manage_rsu_vehicle_connections()
+        self._manage_resource()
         pass
 
     # def _connection(self):
 
+    def _manage_resource(self): ...
+
+    # bw policy here
     # peformance issue
-    def _manage_rsu_vehicle_connections(self, has_tree=True):
+    def _manage_rsu_vehicle_connections(self, kdtree=True):
         """
         connection logical
         """
         # clear connections
+        self.connections = []
         for rsu in self.rsus:
             rsu.connections = []
-            self.connections = []
 
         # KDtree
-        if has_tree == False:
+        if kdtree == False:
             for veh in self.vehicles:
                 vehicle_x, vehicle_y = veh.position.x, veh.position.y
 
@@ -187,10 +371,13 @@ class Env(ParallelEnv):
                     rsu.connections.append(conn)
                     self.connections.append(conn)
 
-        # bw policy here
-        # not sure right or not
-        # connections info update
+        # with mp.Pool() as pool:
+        #     self.connections = pool.map(mp_funcs.update_connection, self.connections)
+        # with Pool(self.multi_core) as p:
+        #     p.map(mp.update_connection, self.connections)
 
+        # connections info update
+        # bw policy here
         for conn in self.connections:
             rsu = conn.rsu
             veh = conn.veh

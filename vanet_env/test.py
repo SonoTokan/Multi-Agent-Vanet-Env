@@ -69,7 +69,7 @@ def osmx_test():
 
 
 # 3600s takes 25 seconds if render_mode = None
-# 112293666 function calls in 97.557 seconds if render_mode = None when take _manage_rsu_vehicle_connections()
+# 112,293,666 function calls in 97.557 seconds if render_mode = None when take _manage_rsu_vehicle_connections()
 # 13864794 function calls in 6.782 seconds if render_mode = None without _manage_rsu_vehicle_connections()
 # 3600s takes 105.441 seconds if render_mode = "human"
 # 3600s takes 137.505 seconds if render lines by logical
@@ -90,6 +90,8 @@ def osmx_test():
 # 500 step-logical: 14,373,235 function calls in 12.490 seconds
 # 500 step-getPos-hasTree-logical-render()-init_all() + Simulation version 1.21.0 started via libsumo with time: 0.00.
 # 1,681,262 function calls in 1.604 seconds
+# 3600 steps
+# 13,356,345 function calls in 11.738 seconds
 
 
 # fps 144?
