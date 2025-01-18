@@ -80,18 +80,22 @@ def osmx_test():
 # 500s takes 16.939 seconds if using kdTree
 # 500s takes 17.127 seconds using new logical
 #
+# None render
 # 500 step-normal: 1,920,955 function calls in 1.502 seconds
 # 500 step-getPos: 2,725,563 function calls in 4.650 seconds
 # 500 step-getPos-logical: 12,153,777 function calls in 10.417 seconds
 # 500 step-getPos-hasTree-logical: 8,218,740 function calls in 7.415 seconds
-# 500 step-getPos-hasTree-logical-delete-render: 3,926,358 function calls in 4.180 seconds
+# 500 step-getPos-hasTree-logical-delete-render(): 3,926,358 function calls in 4.180 seconds
+# 500 step-getPos-hasTree-logical-render()-init_all(): 3,516,416 function calls in 4.055 seconds
 # 500 step-logical: 14,373,235 function calls in 12.490 seconds
+# 500 step-getPos-hasTree-logical-render()-init_all() + Simulation version 1.21.0 started via libsumo with time: 0.00.
+# 1,681,262 function calls in 1.604 seconds
 
 
 # fps 144?
 def sumo_env_test():
     # render_mode="human", None
-    env = Env("human")
+    env = Env(None)
     for i in range(500):
         env.step([])
         env.render()

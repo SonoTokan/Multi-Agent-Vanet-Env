@@ -16,6 +16,7 @@ from vanet_env import config, network
 from vanet_env.utils import RSU_MARKER, VEHICLE_MARKER, interpolate_color, sumo_detector
 from vanet_env.entites import Connection, Rsu, CustomVehicle, Vehicle
 import traci
+import libsumo
 from sumolib import checkBinary
 import multiprocessing
 
@@ -71,17 +72,19 @@ class Env(ParallelEnv):
 
         # canvas max distance
         self.max_distance = network.max_distance_mbps(self.rsus[0], 4)
+        self.sumo = traci
 
         # start sumo sim
         if self.render_mode is not None:
-            traci.start(
+
+            self.sumo.start(
                 ["sumo-gui", "-c", cfg_file_path, "--step-length", "1", "--start"]
             )
             # paint rsu
             for rsu in self.rsus:
                 poi_id = f"rsu_icon_{rsu.id}"
                 # add rsu icon
-                traci.poi.add(
+                self.sumo.poi.add(
                     poi_id,
                     rsu.position.x,
                     rsu.position.y,
@@ -101,7 +104,7 @@ class Env(ParallelEnv):
                     y1 = rsu.position.y + self.max_distance * np.sin(angle1)
                     x2 = rsu.position.x + self.max_distance * np.cos(angle2)
                     y2 = rsu.position.y + self.max_distance * np.sin(angle2)
-                    traci.polygon.add(
+                    self.sumo.polygon.add(
                         f"circle_segment_rsu{rsu.id}_{i}",
                         [(x1, y1), (x2, y2)],
                         color=(255, 0, 0, 255),
@@ -114,20 +117,24 @@ class Env(ParallelEnv):
             sumoBinary = checkBinary("sumo")
 
             # start sumo no gui (for train)
-            traci.start([sumoBinary, "-c", cfg_file_path])
+            self.sumo = libsumo
+            libsumo.start(["sumo", "-c", cfg_file_path])
+            # traci.start([sumoBinary, "-c", cfg_file_path])
         pass
 
     def reset(self, seed=None, options=None):
-        traci.close()
+        self.sumo.close()
         pass
 
     def step(self, action):
         # sumo sim step
-        traci.simulationStep()
+        self.sumo.simulationStep()
 
-        self.vehicle_ids = traci.vehicle.getIDList()
-        # veh objs
-        self.vehicles = [Vehicle(vehicle_id) for vehicle_id in self.vehicle_ids]
+        self.vehicle_ids = self.sumo.vehicle.getIDList()
+        # veh objs 25% time spent
+        self.vehicles = [
+            Vehicle(vehicle_id, self.sumo) for vehicle_id in self.vehicle_ids
+        ]
 
         self._manage_rsu_vehicle_connections()
         pass
@@ -239,7 +246,7 @@ class Env(ParallelEnv):
 
         # Add all polygons at once
         for polygon_id, points, color in polygons_to_add:
-            traci.polygon.add(
+            self.sumo.polygon.add(
                 polygon_id, points, color=color, fill=False, lineWidth=0.3, layer=30
             )
 
@@ -250,9 +257,9 @@ class Env(ParallelEnv):
             # get veh ID
 
             # clear all dynamic rendered polygon
-            for polygon_id in traci.polygon.getIDList():
+            for polygon_id in self.sumo.polygon.getIDList():
                 if polygon_id.startswith("dynamic_"):
-                    traci.polygon.remove(polygon_id)
+                    self.sumo.polygon.remove(polygon_id)
 
             self._render_connections()
 

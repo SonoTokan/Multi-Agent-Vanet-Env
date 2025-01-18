@@ -79,29 +79,48 @@ class Rsu:
 
 
 class Vehicle:
-    def __init__(self, vehicle_id):
+    def __init__(self, vehicle_id, sumo, init_all=True):
         self.vehicle_id = vehicle_id
         self.height = config.VEHICLE_ANTENNA_HEIGHT
-        self.position = Point(traci.vehicle.getPosition(vehicle_id))
+        self.position = None
+        self.angle = None
+        self.sumo = sumo
+
+        if init_all:
+            self.position = Point(sumo.vehicle.getPosition(vehicle_id))
+            self.angle = sumo.vehicle.getAngle(self.vehicle_id)
         # connected rsus, not needed
         # self.connections = []
 
     def get_speed(self):
-        return traci.vehicle.getSpeed(self.vehicle_id)
+        return self.sumo.vehicle.getSpeed(self.vehicle_id)
 
     def set_speed(self, speed):
-        traci.vehicle.setSpeed(self.vehicle_id, speed)
+        self.sumo.vehicle.setSpeed(self.vehicle_id, speed)
 
     def get_position(self):
-        return self.position
+        return (
+            self.position
+            if self.position is not None
+            else self.sumo.vehicle.getPosition(self.vehicle_id)
+        )
 
     def get_angle(self):
-        return traci.vehicle.getAngle(self.vehicle_id)
+        return (
+            self.angle
+            if self.angle is not None
+            else self.sumo.vehicle.getAngle(self.vehicle_id)
+        )
 
 
 class CustomVehicle(Vehicle):
     def __init__(
-        self, id, position: Point, height=config.VEHICLE_ANTENNA_HEIGHT, direction=0
+        self,
+        id,
+        position: Point,
+        sumo=traci,
+        height=config.VEHICLE_ANTENNA_HEIGHT,
+        direction=0,
     ):
         self.id = id
         self.position = position
@@ -110,12 +129,13 @@ class CustomVehicle(Vehicle):
         self.acceleration = 0
         # n s w e, ↑ ↓ ← →, 0 1 2 3
         self.direction = direction
+        self.sumo = sumo
 
     def get_speed(self):
-        return traci.vehicle.getSpeed(self.vehicle_id)
+        return self.sumo.vehicle.getSpeed(self.vehicle_id)
 
     def set_speed(self, speed):
-        traci.vehicle.setSpeed(self.vehicle_id, speed)
+        self.sumo.vehicle.setSpeed(self.vehicle_id, speed)
 
     def get_position(self):
         return self.position
