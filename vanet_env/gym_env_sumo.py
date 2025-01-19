@@ -1,3 +1,4 @@
+import functools
 import sys
 
 from shapely import Point
@@ -20,7 +21,6 @@ from gymnasium import spaces
 from vanet_env import config, network
 from vanet_env.utils import RSU_MARKER, VEHICLE_MARKER, interpolate_color, sumo_detector
 from vanet_env.entites import Connection, Rsu, CustomVehicle, Vehicle
-from test import multiprocess as mp_funcs
 
 # sumo
 import traci
@@ -32,11 +32,9 @@ import multiprocessing as mp
 
 
 class Env(ParallelEnv):
-    metadata = {"render_modes": ["human", None]}
+    metadata = {"name": "sumo_vanet_environment_v0", "render_modes": ["human", None]}
 
-    def __init__(self, render_mode="human", multi_core=8):
-        # SUMO detector
-        sumo_detector()
+    def __init__(self, render_mode="human", max_step=3600, multi_core=8):
 
         self.num_rsu = config.NUM_RSU
         self.num_vh = config.NUM_VEHICLES / 2
@@ -44,16 +42,7 @@ class Env(ParallelEnv):
         self.road_width = config.ROAD_WIDTH
         self.render_mode = render_mode
         self.multi_core = multi_core
-
-        cfg_file_path = os.path.join(
-            os.path.dirname(__file__), "assets", "seattle", "sumo", "osm.sumocfg"
-        )
-
-        gui_settings_path = os.path.join(
-            os.path.dirname(__file__), "assets", "seattle", "sumo", "gui_hide_all.xml"
-        )
-
-        self.icon_path = os.path.join(os.path.dirname(__file__), "assets", "rsu.png")
+        self.max_step = max_step
 
         # init rsus
         self.rsus = [
@@ -81,12 +70,31 @@ class Env(ParallelEnv):
         # network
         self.connections = []
 
-        # canvas max distance
+        # rsu max connection distance
         self.max_distance = network.max_distance_mbps(self.rsus[0], 4)
         self.sumo = traci
 
-        # sapces
+        # pettingzoo init
+        agents = ["rsu_" + str(i) for i in range(self.num_rsu)]
+        self.possible_agents = agents[:]
+        self.time_step = 0
+
         self._space_init()
+        self._sumo_init()
+
+    def _sumo_init(self):
+        # SUMO detector
+        sumo_detector()
+
+        cfg_file_path = os.path.join(
+            os.path.dirname(__file__), "assets", "seattle", "sumo", "osm.sumocfg"
+        )
+
+        gui_settings_path = os.path.join(
+            os.path.dirname(__file__), "assets", "seattle", "sumo", "gui_hide_all.xml"
+        )
+
+        self.icon_path = os.path.join(os.path.dirname(__file__), "assets", "rsu.png")
 
         # start sumo sim
         if self.render_mode is not None:
@@ -134,18 +142,9 @@ class Env(ParallelEnv):
             self.sumo = libsumo
             libsumo.start(["sumo", "-c", cfg_file_path])
             # traci.start([sumoBinary, "-c", cfg_file_path])
-        pass
 
-    def _space_init(self, aggregated=False):
+    def _space_init(self):
 
-        compute_resources_low = 0.0
-        compute_resources_high = 1.0
-        bandwidth_low = 0.0
-        bandwidth_high = 1.0
-        job_state_low = 0.0
-        job_state_high = 1.0
-        connection_state_low = 0.0
-        connection_state_high = 1.0
         # important
         self.max_connections = 10
         self.max_content = 100
@@ -158,81 +157,179 @@ class Env(ParallelEnv):
         # state need veh、job info
 
         # aggregated
-        if aggregated:
-            self.single_state_space = spaces.Dict(
-                {
-                    "compute_resources": spaces.Box(
-                        low=compute_resources_low,
-                        high=compute_resources_high,
-                        shape=(self.num_rsu,),
-                        dtype=np.float32,
-                    ),
-                    "bandwidth": spaces.Box(
-                        low=bandwidth_low,
-                        high=bandwidth_high,
-                        shape=(self.num_rsu,),
-                        dtype=np.float32,
-                    ),
-                    "avg_job_state": spaces.Box(
-                        low=job_state_low,
-                        high=job_state_high,
-                        shape=(self.num_rsu,),
-                        dtype=np.float32,
-                    ),
-                    "avg_connection_state": spaces.Box(
-                        low=connection_state_low,
-                        high=connection_state_high,
-                        shape=(self.num_rsu,),
-                        dtype=np.float32,
-                    ),
-                }
-            )
-
-            initial_state = {
-                "compute_resources": np.random.uniform(
-                    compute_resources_low, compute_resources_high, self.num_rsu
+        self.global_ag_state_space = spaces.Dict(
+            {
+                "compute_resources": spaces.Box(  # ratio
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu,),
+                    dtype=np.float32,
                 ),
-                "bandwidth": np.random.uniform(
-                    bandwidth_low, bandwidth_high, self.num_rsu
+                "bandwidth": spaces.Box(  # ratio
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu,),
+                    dtype=np.float32,
                 ),
-                "avg_job_state": np.random.uniform(
-                    job_state_low, job_state_high, self.num_rsu
+                "avg_job_state": spaces.Box(  # ratio
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu,),
+                    dtype=np.float32,
                 ),
-                "avg_connection_state": np.random.uniform(
-                    connection_state_low, connection_state_high, self.num_rsu
+                "avg_connection_state": spaces.Box(  # ratio
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu,),
+                    dtype=np.float32,
+                ),
+                "job_info": spaces.Box(  # normalized veh job info (size) in connection range
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu, self.max_connections),
+                    dtype=np.float32,
+                ),
+                "veh_x": spaces.Box(  # vehicle x, normalize to 0-1, e.g. 200 -> 0.5, 400 -> 1
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu, self.max_connections),
+                    dtype=np.float32,
+                ),
+                "veh_y": spaces.Box(  # vehicle y, normalize to 0-1
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu, self.max_connections),
+                    dtype=np.float32,
                 ),
             }
+        )
 
-        else:
-            self.single_state_space = spaces.Dict(
-                {
-                    "compute_resources": spaces.Box(
-                        low=compute_resources_low,
-                        high=compute_resources_high,
-                        shape=(self.num_rsu,),
-                        dtype=np.float32,
-                    ),
-                    "bandwidth": spaces.Box(
-                        low=bandwidth_low,
-                        high=bandwidth_high,
-                        shape=(self.num_rsu,),
-                        dtype=np.float32,
-                    ),
-                    "job_state": spaces.Box(
-                        low=job_state_low,
-                        high=job_state_high,
-                        shape=(self.num_rsu, self.max_connections),
-                        dtype=np.float32,
-                    ),
-                    "connection_state": spaces.Box(
-                        low=connection_state_low,
-                        high=connection_state_high,
-                        shape=(self.num_rsu, self.max_connections),
-                        dtype=np.float32,
-                    ),
-                }
-            )
-            ...
+        # not aggregated
+        self.local_ng_state_space = spaces.Dict(
+            {
+                "compute_resource": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(1,),
+                    dtype=np.float32,
+                ),
+                "bandwidth": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(1,),
+                    dtype=np.float32,
+                ),
+                "job_state": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.max_connections,),
+                    dtype=np.float32,
+                ),
+                "connection_state": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.max_connections,),
+                    dtype=np.float32,
+                ),
+                "job_info": spaces.Box(  # normalized veh job info (size) in connection range
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.max_connections,),
+                    dtype=np.float32,
+                ),
+                "veh_x": spaces.Box(  # vehicle x, normalize to 0-1, e.g. 200 -> 0.5, 400 -> 1
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.max_connections,),
+                    dtype=np.float32,
+                ),
+                "veh_y": spaces.Box(  # vehicle y, normalize to 0-1
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.max_connections,),
+                    dtype=np.float32,
+                ),
+            }
+        )
+
+        # not aggregated multi discrete local space
+        self.local_ng_md_state_space = spaces.MultiDiscrete(
+            [self.max_weight] * 2 + [self.max_weight] * self.max_connections * 5
+        )
+
+        # aggregated multi discrete global space, veh and job info not aggregated
+        self.global_ag_md_state_space = spaces.MultiDiscrete(
+            [self.max_weight] * self.num_rsu * 4
+            + [self.max_weight] * self.max_connections * self.num_rsu * 3
+        )
+
+        # not aggregated
+        self.global_ng_state_space = spaces.Dict(
+            {
+                "compute_resources": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu,),
+                    dtype=np.float32,
+                ),
+                "bandwidth": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu,),
+                    dtype=np.float32,
+                ),
+                "job_state": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu, self.max_connections),
+                    dtype=np.float32,
+                ),
+                "connection_state": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.num_rsu, self.max_connections),
+                    dtype=np.float32,
+                ),
+            }
+        )
+
+        # not aggregated
+        self.local_ng_state_space = spaces.Dict(
+            {
+                "compute_resource": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(1,),
+                    dtype=np.float32,
+                ),
+                "bandwidth": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(1,),
+                    dtype=np.float32,
+                ),
+                "job_state": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.max_connections,),
+                    dtype=np.float32,
+                ),
+                "connection_state": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.max_connections,),
+                    dtype=np.float32,
+                ),
+            }
+        )
+
+        # mixed: for every single agent, global aggregated but local not
+        # every rsu's avg bw, cp, job, conn state and veh, job info in this rsu's range
+        self.mixed_md_observation_space = spaces.MultiDiscrete(
+            [self.max_weight] * self.num_rsu * 4
+            + [self.max_weight] * self.max_connections * 3
+        )
+
         job_handling_space = spaces.MultiDiscrete(
             [self.num_rsu + 2] * self.max_connections
         )
@@ -276,16 +373,16 @@ class Env(ParallelEnv):
             }
         )
 
-        # MultiDiscrete action space
-        # job_handling
-        # Action selection is followed by normalization to ensure that the sum of allocated resources is 1
-        md_jh_space_shape = spaces.MultiDiscrete([2] * self.max_connections)
-        # computing power allocation, value means weight
-        md_ca_space = spaces.MultiDiscrete([self.max_weight] * self.max_connections)
-        # bandwidth allocation
-        md_bw_space = spaces.MultiDiscrete([self.max_weight] * self.max_connections)
-        # caching_decision
-        md_cd_space = spaces.MultiDiscrete([self.max_content] * self.max_caching)
+        # # MultiDiscrete action space
+        # # job_handling
+        # # Action selection is followed by normalization to ensure that the sum of allocated resources is 1
+        # md_jh_space_shape = spaces.MultiDiscrete([2] * self.max_connections)
+        # # computing power allocation, value means weight
+        # md_ca_space = spaces.MultiDiscrete([self.max_weight] * self.max_connections)
+        # # bandwidth allocation
+        # md_bw_space = spaces.MultiDiscrete([self.max_weight] * self.max_connections)
+        # # caching_decision
+        # md_cd_space = spaces.MultiDiscrete([self.max_content] * self.max_caching)
 
         # combined
         md_combined_space = spaces.MultiDiscrete(
@@ -295,18 +392,19 @@ class Env(ParallelEnv):
             + [self.max_content] * self.max_caching
         )
 
-        self.md_action_space = md_combined_space
+        self.md_single_action_space = md_combined_space
 
         print(
-            f"action sample{self.md_action_space.sample()}, obs sample{self.single_state_space.sample()}"
+            f"action sample{self.md_single_action_space.sample()}, obs sample{self.mixed_md_observation_space.sample()}"
         )
 
     def reset(self, seed=None, options=None):
-        # may not need
-        self.sumo.close()
+        self.time_step = 0
+
         pass
 
     def step(self, action):
+        self.time_step += 1
         # sumo sim step
         self.sumo.simulationStep()
 
@@ -317,12 +415,12 @@ class Env(ParallelEnv):
         ]
 
         self._manage_rsu_vehicle_connections()
-        self._manage_resource()
+        self._manage_resources()
         pass
 
     # def _connection(self):
 
-    def _manage_resource(self): ...
+    def _manage_resources(self): ...
 
     # bw policy here
     # peformance issue
@@ -453,3 +551,14 @@ class Env(ParallelEnv):
             return
         else:
             return
+
+    @functools.lru_cache(maxsize=None)
+    def observation_space(self, agent):
+        # gymnasium spaces are defined and documented here: https://gymnasium.farama.org/api/spaces/
+        return self.mixed_md_observation_space
+
+    # Action space should be defined here.
+    # If your spaces change over time, remove this line (disable caching).
+    @functools.lru_cache(maxsize=None)
+    def action_space(self, agent):
+        return self.md_single_action_space

@@ -9,7 +9,7 @@ sys.path.append("./")
 
 import cProfile
 from pettingzoo.test import parallel_api_test
-from gym_env_sumo import Env
+from vanet_env.gym_env_sumo import Env
 from vanet_env.entites import Rsu, CustomVehicle
 from vanet_env import utils
 from vanet_env import network
@@ -79,6 +79,7 @@ def osmx_test():
 # 500s takes 16.412 seconds if render lines by logical
 # 500s takes 16.939 seconds if using kdTree
 # 500s takes 17.127 seconds using new logical
+# 500s takes 11 seconds new render
 #
 # None render
 # 500 step-normal: 1,920,955 function calls in 1.502 seconds
@@ -97,8 +98,8 @@ def osmx_test():
 # fps 144?
 def sumo_env_test():
     # render_mode="human", None
-    env = Env(None)
-    for i in range(500):
+    env = Env("human")
+    for i in range(3600):
         env.step([])
         env.render()
 
