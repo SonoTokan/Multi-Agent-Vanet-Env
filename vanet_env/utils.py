@@ -195,3 +195,15 @@ def interpolate_color(min_val, max_val, value):
         b = 0
 
     return (r, g, b)
+
+
+def is_empty(list_in):
+    return all(conn is None for conn in list_in) or list_in
+
+
+def test():
+    if [None]:
+        print(is_empty([]), is_empty([None] * 2))
+
+
+test()

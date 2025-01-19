@@ -91,6 +91,13 @@ def osmx_test():
 # 500 step-logical: 14,373,235 function calls in 12.490 seconds
 # 500 step-getPos-hasTree-logical-render()-init_all() + Simulation version 1.21.0 started via libsumo with time: 0.00.
 # 1,681,262 function calls in 1.604 seconds
+# + orderd rsu conn list
+# 1,995,522 function calls (1995304 primitive calls) in 2.147 seconds
+# + orderd rsu conn list logical 2
+# 2,213,830 function calls (2213612 primitive calls) in 1.877 seconds
+# + queue list
+# 2,152,464 function calls (1973712 primitive calls) in 1.983 seconds
+
 # 3600 steps
 # 13,356,345 function calls in 11.738 seconds
 
@@ -98,9 +105,9 @@ def osmx_test():
 # fps 144?
 def sumo_env_test():
     # render_mode="human", None
-    env = Env("human")
-    for i in range(3600):
-        env.step([])
+    env = Env(None)
+    for i in range(500):
+        env.step({})
         env.render()
 
 

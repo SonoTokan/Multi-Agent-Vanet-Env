@@ -6,7 +6,8 @@ from shapely import Point
 sys.path.append("./")
 
 import os
-from pettingzoo.utils.env import AgentID, ParallelEnv
+from pettingzoo.utils.env import ParallelEnv
+from pettingzoo.utils import parallel_to_aec
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import matplotlib.transforms as transforms
@@ -19,7 +20,13 @@ from gymnasium import spaces
 
 # custom
 from vanet_env import config, network
-from vanet_env.utils import RSU_MARKER, VEHICLE_MARKER, interpolate_color, sumo_detector
+from vanet_env.utils import (
+    RSU_MARKER,
+    VEHICLE_MARKER,
+    interpolate_color,
+    sumo_detector,
+    is_empty,
+)
 from vanet_env.entites import Connection, Rsu, CustomVehicle, Vehicle
 
 # sumo
@@ -31,6 +38,26 @@ from sumolib import checkBinary
 import multiprocessing as mp
 
 
+# def env(render_mode=None):
+#     internal_render_mode = render_mode if render_mode != "ansi" else "human"
+#     env = raw_env(render_mode=internal_render_mode)
+#     # This wrapper is only for environments which print results to the terminal
+#     if render_mode == "ansi":
+#         env = wrappers.CaptureStdoutWrapper(env)
+#     # this wrapper helps error handling for discrete action spaces
+#     env = wrappers.AssertOutOfBoundsWrapper(env)
+#     # Provides a wide vareity of helpful user errors
+#     # Strongly recommended
+#     env = wrappers.OrderEnforcingWrapper(env)
+#     return env
+
+
+def raw_env(render_mode=None):
+    env = Env(render_mode=render_mode)
+    env = parallel_to_aec(env)
+    return env
+
+
 class Env(ParallelEnv):
     metadata = {"name": "sumo_vanet_environment_v0", "render_modes": ["human", None]}
 
@@ -38,17 +65,27 @@ class Env(ParallelEnv):
 
         self.num_rsu = config.NUM_RSU
         self.num_vh = config.NUM_VEHICLES / 2
-        self.max_size = config.MAP_SIZE
+        self.max_size = config.MAP_SIZE  # deprecated
         self.road_width = config.ROAD_WIDTH
         self.render_mode = render_mode
         self.multi_core = multi_core
         self.max_step = max_step
+
+        # important
+        self.max_connections = 10
+        self.max_content = 100
+        self.max_caching = 10
+        # rsu range veh wait for connections
+        self.max_queue_len = 10
+        # every single weight
+        self.max_weight = 100
 
         # init rsus
         self.rsus = [
             Rsu(
                 id=i,
                 position=Point(config.RSU_POSITIONS[i]),
+                max_connection=self.max_connections,
             )
             for i in range(self.num_rsu)
         ]
@@ -68,7 +105,7 @@ class Env(ParallelEnv):
         self.rsu_tree = KDTree(rsu_coords)
 
         # network
-        self.connections = []
+        self.connections_queue = []
 
         # rsu max connection distance
         self.max_distance = network.max_distance_mbps(self.rsus[0], 4)
@@ -79,8 +116,8 @@ class Env(ParallelEnv):
         self.possible_agents = agents[:]
         self.time_step = 0
 
-        self._space_init()
         self._sumo_init()
+        self._space_init()
 
     def _sumo_init(self):
         # SUMO detector
@@ -143,16 +180,10 @@ class Env(ParallelEnv):
             libsumo.start(["sumo", "-c", cfg_file_path])
             # traci.start([sumoBinary, "-c", cfg_file_path])
 
-    def _space_init(self):
+        net_boundary = self.sumo.simulation.getNetBoundary()
+        self.map_size = net_boundary[1]
 
-        # important
-        self.max_connections = 10
-        self.max_content = 100
-        self.max_caching = 10
-        # rsu range veh wait for connections
-        self.max_queue_len = 10
-        # every single weight
-        self.max_weight = 100
+    def _space_init(self):
 
         # state need veh、job info
 
@@ -323,11 +354,14 @@ class Env(ParallelEnv):
             }
         )
 
+        # only this space tested
         # mixed: for every single agent, global aggregated but local not
-        # every rsu's avg bw, cp, job, conn state and veh, job info in this rsu's range
+        # every rsu's avg bw, cp, job, conn state and veh pos, job info in this rsu's range
         self.mixed_md_observation_space = spaces.MultiDiscrete(
             [self.max_weight] * self.num_rsu * 4
-            + [self.max_weight] * self.max_connections * 3
+            + [self.max_weight] * self.max_connections
+            + [int(self.map_size[0])] * self.max_connections
+            + [int(self.map_size[1])] * self.max_connections
         )
 
         job_handling_space = spaces.MultiDiscrete(
@@ -399,11 +433,32 @@ class Env(ParallelEnv):
         )
 
     def reset(self, seed=None, options=None):
+        self.agents = np.copy(self.possible_agents)
         self.time_step = 0
+        # every rsu's avg bw, cp, job, conn state and veh, job info in this rsu's range
+        self.mixed_md_observation_space = spaces.MultiDiscrete(
+            [self.max_weight] * self.num_rsu * 4
+            + [self.max_weight] * self.max_connections * 3
+        )
 
-        pass
+        observations = {
+            agent: {
+                np.zeros(
+                    self.num_rsu * 4
+                    + self.max_connections
+                    + self.max_connections
+                    + self.max_connections
+                ).tolist()  # not sure need or not
+            }
+            for agent in self.agents
+        }
 
-    def step(self, action):
+        # parallel_to_aec conversion needed
+        infos = {a: {} for a in self.agents}
+
+        return observations, infos
+
+    def step(self, actions):
         self.time_step += 1
         # sumo sim step
         self.sumo.simulationStep()
@@ -414,27 +469,57 @@ class Env(ParallelEnv):
             Vehicle(vehicle_id, self.sumo) for vehicle_id in self.vehicle_ids
         ]
 
-        self._manage_rsu_vehicle_connections()
+        self._update_connections_queue()
+        # take action and update observation space
+        self._take_actions(actions)
+        self._update_observations()
+
+    def _take_actions(self, actions):
+        # action rsu 0 -- n
+        # action mask based on veh and rsu state
+        for idx, action in enumerate(list(actions.values())):
+            rsu = self.rsus[idx]
+            rsu.connections
+            connection_action_mask = np.ones(self.max_connections, dtype=np.int8)
+            ...
+
         self._manage_resources()
         pass
 
-    # def _connection(self):
+    def _update_observations(self):
 
-    def _manage_resources(self): ...
+        pass
 
-    # bw policy here
+    def _manage_resources(self):
+        # connections info update
+        # bw policy here
+        for conn in self.connections_queue:
+            rsu = conn.rsu
+            veh = conn.veh
+            data_rate = (
+                network.channel_capacity(rsu, veh)
+                * rsu.num_atn
+                / len(rsu.connections.olist)
+            )
+
+            conn.data_rate = data_rate
+        pass
+
     # peformance issue
-    def _manage_rsu_vehicle_connections(self, kdtree=True):
+    def _update_connections_queue(self, kdtree=True):
         """
         connection logical
         """
         # clear connections
-        self.connections = []
-        for rsu in self.rsus:
-            rsu.connections = []
+        self.connections_queue = []
+        # rsu not clear, just update
+        # for rsu in self.rsus:
+        #     rsu.connections = []
 
         # KDtree
+        # disordered issue
         if kdtree == False:
+            # not implement!
             for veh in self.vehicles:
                 vehicle_x, vehicle_y = veh.position.x, veh.position.y
 
@@ -451,9 +536,8 @@ class Env(ParallelEnv):
                     if distance <= self.max_distance:
                         conn = Connection(rsu, veh)
                         rsu.connections.append(conn)
-                        self.connections.append(conn)
+                        self.connections_queue.append(conn)
         else:
-
             # connections update
             for veh in self.vehicles:
                 vehicle_x, vehicle_y = veh.position.x, veh.position.y
@@ -466,31 +550,66 @@ class Env(ParallelEnv):
                 for idx in indices:
                     rsu = self.rsus[idx]
                     conn = Connection(rsu, veh)
-                    rsu.connections.append(conn)
-                    self.connections.append(conn)
+                    # update rsu conn queue
+                    matching_connection = [c for c in rsu.connections if c == conn]
+                    # if exist, update veh info else append
+                    if matching_connection:
+                        matching_connection[0].veh = veh
+                    else:
+                        rsu.connections.append(conn)
 
+                    self.connections_queue.append(conn)
+
+                # conn remove logical #1
+                # check if veh out
+
+                # for idx, rsu in enumerate(self.rsus):
+                #     # empty
+                #     if not rsu.connections:
+                #         continue
+
+                #     # veh is out of range
+                #     if idx not in indices:
+                #         rsu.connections = [
+                #             c
+                #             for c in rsu.connections
+                #             if c.veh.vehicle_id != veh.vehicle_id
+                #         ]
+
+            # conn remove logical #2
+            for rsu in self.rsus:
+                # empty
+                if rsu.connections.is_empty():
+                    continue
+
+                for idx, c in enumerate(rsu.connections):
+                    if c not in self.connections_queue:
+                        rsu.connections.remove(idx)
+            # check if veh out
+            # issue
+            # for rsu in self.rsus:
+            #     for i in range(len(rsu.connections) - 1, -1, -1):
+            #         conn = rsu.connections[i]
+            #         # may not right
+            #         indices = self.rsu_tree.query_ball_point(
+            #             np.array([conn.veh.position.x, conn.veh.position.y]),
+            #             self.max_distance,
+            #         )
+            #         # not in range
+            #         if len(indices) == 0:
+            #             del rsu.connections[i]
         # with mp.Pool() as pool:
         #     self.connections = pool.map(mp_funcs.update_connection, self.connections)
         # with Pool(self.multi_core) as p:
         #     p.map(mp.update_connection, self.connections)
-
-        # connections info update
-        # bw policy here
-        for conn in self.connections:
-            rsu = conn.rsu
-            veh = conn.veh
-            data_rate = (
-                network.channel_capacity(rsu, veh) * rsu.num_atn / len(rsu.connections)
-            )
-
-            conn.data_rate = data_rate
 
     # improve：返回polygons然后后面统一绘制？
     def _render_connections(self):
         # Batch add polygons
         polygons_to_add = []
 
-        for conn in self.connections:
+        # not correct now
+        for conn in self.connections_queue:
             color = interpolate_color(
                 config.DATA_RATE_TR, self.max_data_rate, conn.data_rate
             )
@@ -552,13 +671,15 @@ class Env(ParallelEnv):
         else:
             return
 
+    def close(self):
+        self.sumo.close()
+        return super().close()
+
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent):
-        # gymnasium spaces are defined and documented here: https://gymnasium.farama.org/api/spaces/
+
         return self.mixed_md_observation_space
 
-    # Action space should be defined here.
-    # If your spaces change over time, remove this line (disable caching).
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
         return self.md_single_action_space

@@ -19,6 +19,40 @@ from vanet_env import config
 #         self.height = height
 
 
+class OrderedQueueList:
+    def __init__(self, max_size):
+        self.olist = [None] * max_size
+        self.max_size = max_size
+
+    def append(self, elem):
+        for i in range(self.max_size):
+            if self.olist[i] is None:
+                self.olist[i] = elem
+                return True
+        return False  # 如果没有空位，返回 False
+
+    def insert(self, elem, index):
+        self.olist[index] = elem
+
+    def remove(self, index):
+        if 0 <= index < self.max_size:
+            self.olist[index] = None
+        else:
+            assert ValueError
+
+    def size(self):
+        return sum(1 for conn in self.olist if conn is not None)
+
+    def is_empty(self):
+        return all(conn is None for conn in self.olist) or self.olist
+
+    def __iter__(self):
+        return iter(self.olist)
+
+    def __str__(self):
+        return str(self.olist)
+
+
 class Rsu:
     def __init__(
         self,
@@ -33,6 +67,7 @@ class Rsu:
         computation_power=config.RSU_COMPUTATION_POWER,
         caching_capacity=config.RSU_CACHING_CAPACITY,
         num_atn=config.RSU_NUM_ANTENNA,
+        max_connection=10,
     ):
         self.id = id
         self.position = position
@@ -44,9 +79,7 @@ class Rsu:
         self.computation_power = computation_power
         self.caching_capacity = caching_capacity
         self.snr_threshold = snr_threshold
-        # {"connected_veh": None, "connected_quality": None}
-        self.connections = []
-        self.bind_road = []
+        self.connections = OrderedQueueList(max_connection)
         self.num_atn = num_atn
 
     def distance(self, vh_position):
@@ -156,3 +189,10 @@ class Connection:
         self.veh = veh
         self.rsu = rsu
         self.data_rate = data_rate
+        # str
+        self.id = str(rsu.id) + veh.vehicle_id
+
+    def __eq__(self, other):
+        if other == None:
+            return False
+        return self.id == other.id
