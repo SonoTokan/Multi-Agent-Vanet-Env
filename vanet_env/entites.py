@@ -44,7 +44,10 @@ class OrderedQueueList:
         return sum(1 for conn in self.olist if conn is not None)
 
     def is_empty(self):
-        return all(conn is None for conn in self.olist) or self.olist
+        """
+        may has bug, do not use
+        """
+        return all(conn is None for conn in self.olist)
 
     def __iter__(self):
         return iter(self.olist)
@@ -189,10 +192,20 @@ class Connection:
         self.veh = veh
         self.rsu = rsu
         self.data_rate = data_rate
+        self.connected = False
         # str
         self.id = str(rsu.id) + veh.vehicle_id
 
+    def connect(self):
+        """
+        only connect when take action
+        """
+        self.connected = True
+
+    def disconnect(self):
+        self.connected = False
+
     def __eq__(self, other):
-        if other == None:
+        if other is None:
             return False
         return self.id == other.id

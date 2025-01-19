@@ -80,6 +80,8 @@ def osmx_test():
 # 500s takes 16.939 seconds if using kdTree
 # 500s takes 17.127 seconds using new logical
 # 500s takes 11 seconds new render
+# + queue list
+# 11,405,122 function calls (11404904 primitive calls) in 15.304 seconds
 #
 # None render
 # 500 step-normal: 1,920,955 function calls in 1.502 seconds
@@ -97,7 +99,8 @@ def osmx_test():
 # 2,213,830 function calls (2213612 primitive calls) in 1.877 seconds
 # + queue list
 # 2,152,464 function calls (1973712 primitive calls) in 1.983 seconds
-
+# no empty determine
+# 2,364,018 function calls (2363800 primitive calls) in 2.033 seconds
 # 3600 steps
 # 13,356,345 function calls in 11.738 seconds
 
@@ -107,7 +110,7 @@ def sumo_env_test():
     # render_mode="human", None
     env = Env(None)
     for i in range(500):
-        env.step({})
+        env.step({"a1": "123"})
         env.render()
 
 

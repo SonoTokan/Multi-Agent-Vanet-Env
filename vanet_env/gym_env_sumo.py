@@ -61,7 +61,9 @@ def raw_env(render_mode=None):
 class Env(ParallelEnv):
     metadata = {"name": "sumo_vanet_environment_v0", "render_modes": ["human", None]}
 
-    def __init__(self, render_mode="human", max_step=3600, multi_core=8):
+    def __init__(
+        self, render_mode="human", max_step=3600, multi_core=8, caching_step=100
+    ):
 
         self.num_rsu = config.NUM_RSU
         self.num_vh = config.NUM_VEHICLES / 2
@@ -70,6 +72,7 @@ class Env(ParallelEnv):
         self.render_mode = render_mode
         self.multi_core = multi_core
         self.max_step = max_step
+        self.caching_step = caching_step
 
         # important
         self.max_connections = 10
@@ -433,6 +436,7 @@ class Env(ParallelEnv):
         )
 
     def reset(self, seed=None, options=None):
+
         self.agents = np.copy(self.possible_agents)
         self.time_step = 0
         # every rsu's avg bw, cp, job, conn state and veh, job info in this rsu's range
@@ -441,28 +445,28 @@ class Env(ParallelEnv):
             + [self.max_weight] * self.max_connections * 3
         )
 
+        observation = np.zeros(
+            self.num_rsu * 4
+            + self.max_connections
+            + self.max_connections
+            + self.max_connections
+        ).tolist()  # not sure need or not
+
+        # do not take any action except caching at start
         observations = {
             agent: {
-                np.zeros(
-                    self.num_rsu * 4
-                    + self.max_connections
-                    + self.max_connections
-                    + self.max_connections
-                ).tolist()  # not sure need or not
+                "observation": observation,
+                "action_mask": self._single_action_mask(idx),
             }
-            for agent in self.agents
+            for idx, agent in enumerate(self.agents)
         }
 
-        # parallel_to_aec conversion needed
+        # parallel_to_aec conversion may needed
         infos = {a: {} for a in self.agents}
 
         return observations, infos
 
     def step(self, actions):
-        self.time_step += 1
-        # sumo sim step
-        self.sumo.simulationStep()
-
         self.vehicle_ids = self.sumo.vehicle.getIDList()
         # veh objs 25% time spent
         self.vehicles = [
@@ -470,18 +474,61 @@ class Env(ParallelEnv):
         ]
 
         self._update_connections_queue()
-        # take action and update observation space
+
+        # take action
         self._take_actions(actions)
+
+        # sumo sim step
+        self.sumo.simulationStep()
+
+        # update observation space
         self._update_observations()
+
+    def _single_action_mask(self, rsu_idx):
+        connection_action_mask = []
+        resource_manager_action_mask = []
+
+        # for c in self.rsus[rsu_idx].connections:
+        #     if c is None:
+        #         connection_action_mask.append(0)
+        #         resource_manager_action_mask.append(0)
+        #         continue
+
+        #     if c.connected:
+        #         connection_action_mask.append(0)
+        #         resource_manager_action_mask.append(1)
+        #     else:
+        #         resource_manager_action_mask.append(1)
+        #         resource_manager_action_mask.append(0)
+
+        # if None or connected do not need connect
+        connection_action_mask = [
+            0 if c is None or c.connected else 1 for c in self.rsus[rsu_idx].connections
+        ]
+        # if None or not connected do not need resource manage
+        # so only connected need
+        resource_manager_action_mask = [
+            0 if c is None or not c.connected else 1
+            for c in self.rsus[rsu_idx].connections
+        ]
+
+        caching_action_mask = [0] * self.max_caching
+
+        if self.time_step % self.caching_step == 0:
+            caching_action_mask = [1] * self.max_caching
+
+        # 1 * connction + 2 * resourceman + caching
+        return (
+            connection_action_mask
+            + resource_manager_action_mask * 2
+            + caching_action_mask
+        )
 
     def _take_actions(self, actions):
         # action rsu 0 -- n
         # action mask based on veh and rsu state
         for idx, action in enumerate(list(actions.values())):
             rsu = self.rsus[idx]
-            rsu.connections
-            connection_action_mask = np.ones(self.max_connections, dtype=np.int8)
-            ...
 
         self._manage_resources()
         pass
@@ -578,11 +625,10 @@ class Env(ParallelEnv):
 
             # conn remove logical #2
             for rsu in self.rsus:
-                # empty
-                if rsu.connections.is_empty():
-                    continue
-
                 for idx, c in enumerate(rsu.connections):
+                    if c is None:
+                        continue
+
                     if c not in self.connections_queue:
                         rsu.connections.remove(idx)
             # check if veh out

@@ -197,6 +197,7 @@ def interpolate_color(min_val, max_val, value):
     return (r, g, b)
 
 
+# bug detected do not use
 def is_empty(list_in):
     return all(conn is None for conn in list_in) or list_in
 
