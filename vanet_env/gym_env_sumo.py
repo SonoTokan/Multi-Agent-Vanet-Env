@@ -449,6 +449,8 @@ class Env(ParallelEnv):
             Vehicle(vehicle_id, self.sumo) for vehicle_id in self.vehicle_ids
         ]
 
+        self._update_connections_queue()
+
         self.agents = np.copy(self.possible_agents)
         self.time_step = 0
         # every rsu's avg bw, cp, job, conn state and veh, job info in this rsu's range
@@ -483,8 +485,6 @@ class Env(ParallelEnv):
 
     def step(self, actions):
 
-        self._update_connections_queue()
-
         # take action
         self._take_actions(actions)
 
@@ -496,6 +496,8 @@ class Env(ParallelEnv):
 
         # update veh after sim step
         self._update_vehicles()
+
+        self._update_connections_queue()
 
         # update observation space
         observations = self._update_observations()
@@ -531,7 +533,7 @@ class Env(ParallelEnv):
         # update vehicle_ids
         self.vehicle_ids = list(current_vehicle_ids)
 
-        # uodate every veh's position and direction
+        # update every veh's position and direction
         for vehicle in self.vehicles:
             vehicle.update_pos_direction()
 
@@ -591,6 +593,7 @@ class Env(ParallelEnv):
             caching_decision = action[3 * self.max_connections :]
 
             # excute job_handling
+            # not implement enough
             for jh_action in job_handling_action:
                 if jh_action == self.num_rsus + 1:
                     continue  # not handling or continue
@@ -686,9 +689,25 @@ class Env(ParallelEnv):
                     vehicle_coord, self.max_distance
                 )
 
+                # remove deprecated veh.connections which veh.connections[i].rsu.id not in indices
+                for i in range(veh.connections.max_size):
+                    if (
+                        veh.connections[i] is not None
+                        and veh.connections[i].rsu.id not in indices
+                    ):
+                        veh.connections[i] = None
+                        
+                # veh.connections = [
+                #     connection
+                #     for connection in veh.connections
+                #     if connection.rsu.id in indices
+                # ]
+
+                # is there need choose one to prefer connect?
                 for idx in indices:
                     rsu = self.rsus[idx]
                     conn = Connection(rsu, veh)
+
                     # update rsu conn queue, only one here
                     matching_connection = [c for c in rsu.connections if c == conn]
                     # if rsu--veh exist, update veh info else append
@@ -697,6 +716,15 @@ class Env(ParallelEnv):
                         conn = matching_connection[0]
                     else:
                         rsu.connections.append(conn)
+
+                    # update veh conn queue, only one here
+                    veh_matching_connection = [c for c in rsu.connections if c == conn]
+                    # if veh--rsu exist, update veh info else append
+                    if veh_matching_connection:
+                        veh_matching_connection[0].veh = veh
+                        conn = veh_matching_connection[0]
+                    else:
+                        veh.connections.append(conn)
 
                     self.connections_queue.append(conn)
 
@@ -716,7 +744,7 @@ class Env(ParallelEnv):
                 #             if c.veh.vehicle_id != veh.vehicle_id
                 #         ]
 
-            # conn remove logical #2 i.e. loss connected, if veh connecting any rsu, job would not nerver loss until job done
+            # conn remove logical #2 i.e. loss connected, if veh connecting any rsu, job would nerver loss until job done
             for rsu in self.rsus:
                 for idx, c in enumerate(rsu.connections):
                     if c is None:
@@ -747,6 +775,7 @@ class Env(ParallelEnv):
         # Batch add polygons
         polygons_to_add = []
 
+        # render QoE
         # not correct now
         for conn in self.connections_queue:
             color = interpolate_color(

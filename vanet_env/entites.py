@@ -71,6 +71,18 @@ class OrderedQueueList:
     def __str__(self):
         return str(self.olist)
 
+    def __getitem__(self, index):
+        if 0 <= index < self.max_size:
+            return self.olist[index]
+        else:
+            raise IndexError("Index out of range")
+
+    def __setitem__(self, index, value):
+        if 0 <= index < self.max_size:
+            self.olist[index] = value
+        else:
+            raise IndexError("Index out of range")
+
 
 class Rsu:
     def __init__(
@@ -151,7 +163,9 @@ class Rsu:
 
 
 class Vehicle:
-    def __init__(self, vehicle_id, sumo, init_all=True, seed=config.SEED):
+    def __init__(
+        self, vehicle_id, sumo, init_all=True, seed=config.SEED, max_connections=4
+    ):
         self.vehicle_id = vehicle_id
         self.height = config.VEHICLE_ANTENNA_HEIGHT
         self.position = None
@@ -162,13 +176,16 @@ class Vehicle:
         random.seed(self.seed)
 
         self.job_size = random.randint(8, config.MAX_JOB_SIZE)
+        self.job_processed = 0
+        # Need for popularity modeling
         self.job_type = random.randint(0, config.NUM_CONTENT)
 
         if init_all:
             self.position = Point(sumo.vehicle.getPosition(vehicle_id))
             self.angle = sumo.vehicle.getAngle(self.vehicle_id)
-        # connected rsus, not needed
-        # self.connections = []
+
+        # connected rsus, may not needed
+        self.connections = OrderedQueueList(max_connections)
 
     def update_pos_direction(self):
         self.position = Point(self.sumo.vehicle.getPosition(self.vehicle_id))

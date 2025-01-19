@@ -101,6 +101,8 @@ def osmx_test():
 # 2,152,464 function calls (1973712 primitive calls) in 1.983 seconds
 # no empty determine
 # 2,364,018 function calls (2363800 primitive calls) in 2.033 seconds
+# + veh logicals
+# 2,652,298 function calls (2652080 primitive calls) in 2.224 seconds
 # 3600 steps
 # 13,356,345 function calls in 11.738 seconds
 
