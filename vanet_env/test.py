@@ -109,8 +109,9 @@ def osmx_test():
 def sumo_env_test():
     # render_mode="human", None
     env = Env(None)
+    obs, infos = env.reset()
     for i in range(500):
-        env.step({"a1": "123"})
+        env.step({})
         env.render()
 
 

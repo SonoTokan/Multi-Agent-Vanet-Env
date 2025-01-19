@@ -1,3 +1,4 @@
+import random
 import sys
 
 from shapely import Point
@@ -20,9 +21,13 @@ from vanet_env import config
 
 
 class OrderedQueueList:
-    def __init__(self, max_size):
-        self.olist = [None] * max_size
+    def __init__(self, max_size, init_num=None):
+
         self.max_size = max_size
+        if init_num is not None:
+            self.olist = [init_num] * max_size
+        else:
+            self.olist = [None] * max_size
 
     def append(self, elem):
         for i in range(self.max_size):
@@ -48,6 +53,17 @@ class OrderedQueueList:
         may has bug, do not use
         """
         return all(conn is None for conn in self.olist)
+
+    def avg(self):
+        filtered_values = [v for v in self.olist if v is not None]
+        if filtered_values:
+            return self.sum() / len(filtered_values)
+        else:
+            return 0
+
+    def sum(self):
+        filtered_values = [v for v in self.olist if v is not None]
+        return sum(filtered_values)
 
     def __iter__(self):
         return iter(self.olist)
@@ -83,7 +99,27 @@ class Rsu:
         self.caching_capacity = caching_capacity
         self.snr_threshold = snr_threshold
         self.connections = OrderedQueueList(max_connection)
+        self.handling_job = OrderedQueueList(max_connection)  # may not necessary
+        self.bw_alloc = OrderedQueueList(max_connection)
+        self.computation_power_alloc = OrderedQueueList(max_connection)
+        self.caching_content = OrderedQueueList(caching_capacity)
         self.num_atn = num_atn
+
+    def allocate_computing_power(self, ac_list: list):
+        self.computation_power_alloc = np.copy(ac_list)
+        ...
+
+    def cache_content(self, cc_list: list):
+        self.caching_content = np.copy(cc_list)
+        ...
+
+    def allocate_bandwidth(self, abw_list: list):
+        self.bw_alloc = np.copy(abw_list)
+        ...
+
+    def handle_job(self, job):
+        # pending handle
+        ...
 
     def distance(self, vh_position):
         return np.sqrt(
@@ -115,18 +151,28 @@ class Rsu:
 
 
 class Vehicle:
-    def __init__(self, vehicle_id, sumo, init_all=True):
+    def __init__(self, vehicle_id, sumo, init_all=True, seed=config.SEED):
         self.vehicle_id = vehicle_id
         self.height = config.VEHICLE_ANTENNA_HEIGHT
         self.position = None
         self.angle = None
         self.sumo = sumo
+        self.seed = seed
+
+        random.seed(self.seed)
+
+        self.job_size = random.randint(8, config.MAX_JOB_SIZE)
+        self.job_type = random.randint(0, config.NUM_CONTENT)
 
         if init_all:
             self.position = Point(sumo.vehicle.getPosition(vehicle_id))
             self.angle = sumo.vehicle.getAngle(self.vehicle_id)
         # connected rsus, not needed
         # self.connections = []
+
+    def update_pos_direction(self):
+        self.position = Point(self.sumo.vehicle.getPosition(self.vehicle_id))
+        self.angle = self.sumo.vehicle.getAngle(self.vehicle_id)
 
     def get_speed(self):
         return self.sumo.vehicle.getSpeed(self.vehicle_id)

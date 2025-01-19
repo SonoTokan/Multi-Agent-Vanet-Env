@@ -10,9 +10,10 @@ print("config loaded")
 #     def __init__(self):
 #         self.path_loss = "OkumuraHata"
 #         self.rsu = Rsu()
+SEED = 1024
 
 # Canvas Size
-MAP_SIZE = (400, 400)
+# MAP_SIZE = (400, 400)
 
 # Road Config
 # Road width (meters)
@@ -35,10 +36,10 @@ for x in range(0, 400, 100):
 NUM_RSU = len(RSU_POSITIONS)
 
 # Rsu Config
-# Computation Power
+# Computation Power cores and ghz
 RSU_COMPUTATION_POWER = 256
 # Caching Capacity
-RSU_CACHING_CAPACITY = 64
+RSU_CACHING_CAPACITY = 10
 # Transmitted power (( P_t )): 1 Watt (30 dBm)
 RSU_TRANSMITTED_POWER = 30
 # Noise power (( N )): ( 10^{-9} ) Watts (-90 dBm)
@@ -66,6 +67,10 @@ DATA_RATE_TR = 8
 NUM_VEHICLES = 50
 # Antenna Height
 VEHICLE_ANTENNA_HEIGHT = 1.5
+# max Job size
+MAX_JOB_SIZE = 256
+# content num
+NUM_CONTENT = 100
 
 # Render Config
 

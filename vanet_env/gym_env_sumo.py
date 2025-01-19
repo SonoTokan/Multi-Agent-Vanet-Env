@@ -1,4 +1,5 @@
 import functools
+import random
 import sys
 
 from shapely import Point
@@ -65,19 +66,22 @@ class Env(ParallelEnv):
         self, render_mode="human", max_step=3600, multi_core=8, caching_step=100
     ):
 
-        self.num_rsu = config.NUM_RSU
+        self.num_rsus = config.NUM_RSU
         self.num_vh = config.NUM_VEHICLES / 2
-        self.max_size = config.MAP_SIZE  # deprecated
+        # self.max_size = config.MAP_SIZE  # deprecated
         self.road_width = config.ROAD_WIDTH
+        self.seed = config.SEED
         self.render_mode = render_mode
         self.multi_core = multi_core
         self.max_step = max_step
         self.caching_step = caching_step
 
+        random.seed(self.seed)
+
         # important
         self.max_connections = 10
         self.max_content = 100
-        self.max_caching = 10
+        self.max_caching = config.RSU_CACHING_CAPACITY
         # rsu range veh wait for connections
         self.max_queue_len = 10
         # every single weight
@@ -90,7 +94,7 @@ class Env(ParallelEnv):
                 position=Point(config.RSU_POSITIONS[i]),
                 max_connection=self.max_connections,
             )
-            for i in range(self.num_rsu)
+            for i in range(self.num_rsus)
         ]
 
         # max data rate
@@ -115,7 +119,7 @@ class Env(ParallelEnv):
         self.sumo = traci
 
         # pettingzoo init
-        agents = ["rsu_" + str(i) for i in range(self.num_rsu)]
+        agents = ["rsu_" + str(i) for i in range(self.num_rsus)]
         self.possible_agents = agents[:]
         self.time_step = 0
 
@@ -196,43 +200,43 @@ class Env(ParallelEnv):
                 "compute_resources": spaces.Box(  # ratio
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu,),
+                    shape=(self.num_rsus,),
                     dtype=np.float32,
                 ),
                 "bandwidth": spaces.Box(  # ratio
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu,),
+                    shape=(self.num_rsus,),
                     dtype=np.float32,
                 ),
                 "avg_job_state": spaces.Box(  # ratio
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu,),
+                    shape=(self.num_rsus,),
                     dtype=np.float32,
                 ),
                 "avg_connection_state": spaces.Box(  # ratio
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu,),
+                    shape=(self.num_rsus,),
                     dtype=np.float32,
                 ),
                 "job_info": spaces.Box(  # normalized veh job info (size) in connection range
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu, self.max_connections),
+                    shape=(self.num_rsus, self.max_connections),
                     dtype=np.float32,
                 ),
                 "veh_x": spaces.Box(  # vehicle x, normalize to 0-1, e.g. 200 -> 0.5, 400 -> 1
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu, self.max_connections),
+                    shape=(self.num_rsus, self.max_connections),
                     dtype=np.float32,
                 ),
                 "veh_y": spaces.Box(  # vehicle y, normalize to 0-1
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu, self.max_connections),
+                    shape=(self.num_rsus, self.max_connections),
                     dtype=np.float32,
                 ),
             }
@@ -293,8 +297,8 @@ class Env(ParallelEnv):
 
         # aggregated multi discrete global space, veh and job info not aggregated
         self.global_ag_md_state_space = spaces.MultiDiscrete(
-            [self.max_weight] * self.num_rsu * 4
-            + [self.max_weight] * self.max_connections * self.num_rsu * 3
+            [self.max_weight] * self.num_rsus * 4
+            + [self.max_weight] * self.max_connections * self.num_rsus * 3
         )
 
         # not aggregated
@@ -303,25 +307,25 @@ class Env(ParallelEnv):
                 "compute_resources": spaces.Box(
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu,),
+                    shape=(self.num_rsus,),
                     dtype=np.float32,
                 ),
                 "bandwidth": spaces.Box(
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu,),
+                    shape=(self.num_rsus,),
                     dtype=np.float32,
                 ),
                 "job_state": spaces.Box(
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu, self.max_connections),
+                    shape=(self.num_rsus, self.max_connections),
                     dtype=np.float32,
                 ),
                 "connection_state": spaces.Box(
                     low=0.0,
                     high=1.0,
-                    shape=(self.num_rsu, self.max_connections),
+                    shape=(self.num_rsus, self.max_connections),
                     dtype=np.float32,
                 ),
             }
@@ -361,14 +365,14 @@ class Env(ParallelEnv):
         # mixed: for every single agent, global aggregated but local not
         # every rsu's avg bw, cp, job, conn state and veh pos, job info in this rsu's range
         self.mixed_md_observation_space = spaces.MultiDiscrete(
-            [self.max_weight] * self.num_rsu * 4
+            [self.max_weight] * self.num_rsus * 4
             + [self.max_weight] * self.max_connections
             + [int(self.map_size[0])] * self.max_connections
             + [int(self.map_size[1])] * self.max_connections
         )
 
         job_handling_space = spaces.MultiDiscrete(
-            [self.num_rsu + 2] * self.max_connections
+            [self.num_rsus + 2] * self.max_connections
         )
 
         # connection policy
@@ -413,7 +417,10 @@ class Env(ParallelEnv):
         # # MultiDiscrete action space
         # # job_handling
         # # Action selection is followed by normalization to ensure that the sum of allocated resources is 1
-        # md_jh_space_shape = spaces.MultiDiscrete([2] * self.max_connections)
+        # job handling to which rsu id (include self, need 0 to specify self?), num_rsus means cloud, num_rsus + 1 means not handling
+        # md_jh_space_shape = spaces.MultiDiscrete([self.num_rsus + 2] * self.max_connections)
+        # received handling job handle or not （necessary?）
+        #
         # # computing power allocation, value means weight
         # md_ca_space = spaces.MultiDiscrete([self.max_weight] * self.max_connections)
         # # bandwidth allocation
@@ -423,7 +430,7 @@ class Env(ParallelEnv):
 
         # combined
         md_combined_space = spaces.MultiDiscrete(
-            [2] * self.max_connections
+            [self.num_rsus + 2] * self.max_connections
             + [self.max_weight] * self.max_connections
             + [self.max_weight] * self.max_connections
             + [self.max_content] * self.max_caching
@@ -436,20 +443,28 @@ class Env(ParallelEnv):
         )
 
     def reset(self, seed=None, options=None):
+        self.vehicle_ids = self.sumo.vehicle.getIDList()
+
+        self.vehicles = [
+            Vehicle(vehicle_id, self.sumo) for vehicle_id in self.vehicle_ids
+        ]
 
         self.agents = np.copy(self.possible_agents)
         self.time_step = 0
         # every rsu's avg bw, cp, job, conn state and veh, job info in this rsu's range
         self.mixed_md_observation_space = spaces.MultiDiscrete(
-            [self.max_weight] * self.num_rsu * 4
+            [self.max_weight] * self.num_rsus * 4
             + [self.max_weight] * self.max_connections * 3
         )
 
         observation = np.zeros(
-            self.num_rsu * 4
-            + self.max_connections
-            + self.max_connections
-            + self.max_connections
+            (
+                self.num_rsus * 4
+                + self.max_connections
+                + self.max_connections
+                + self.max_connections
+            ),
+            dtype=int,
         ).tolist()  # not sure need or not
 
         # do not take any action except caching at start
@@ -467,22 +482,58 @@ class Env(ParallelEnv):
         return observations, infos
 
     def step(self, actions):
-        self.vehicle_ids = self.sumo.vehicle.getIDList()
-        # veh objs 25% time spent
-        self.vehicles = [
-            Vehicle(vehicle_id, self.sumo) for vehicle_id in self.vehicle_ids
-        ]
 
         self._update_connections_queue()
 
         # take action
         self._take_actions(actions)
 
-        # sumo sim step
+        # caculate rewards
+        rewards = self._calculate_rewards()
+
+        # sumo sim step after take action and before update env
         self.sumo.simulationStep()
 
+        # update veh after sim step
+        self._update_vehicles()
+
         # update observation space
-        self._update_observations()
+        observations = self._update_observations()
+
+        # time up or sumo done
+
+        # self.sumo.simulation.getMinExpectedNumber() <= 0
+        if self.time_step >= self.max_step or ...:
+            terminations = {a: True for a in self.agents}
+
+        truncations = {a: True for a in self.agents}
+        infos = {a: {} for a in self.agents}
+
+        return observations, rewards, terminations, truncations, infos
+
+    def _update_vehicles(self):
+        current_vehicle_ids = set(self.sumo.vehicle.getIDList())
+        previous_vehicle_ids = set(self.vehicle_ids)
+
+        # find new veh in map
+        new_vehicle_ids = current_vehicle_ids - previous_vehicle_ids
+        for vehicle_id in new_vehicle_ids:
+            self.vehicles.append(Vehicle(vehicle_id, self.sumo))
+
+        # find leaving veh
+        removed_vehicle_ids = previous_vehicle_ids - current_vehicle_ids
+        self.vehicles = [
+            vehicle
+            for vehicle in self.vehicles
+            if vehicle.vehicle_id not in removed_vehicle_ids
+        ]
+
+        # update vehicle_ids
+        self.vehicle_ids = list(current_vehicle_ids)
+
+        # uodate every veh's position and direction
+        for vehicle in self.vehicles:
+            vehicle.update_pos_direction()
 
     def _single_action_mask(self, rsu_idx):
         connection_action_mask = []
@@ -501,9 +552,9 @@ class Env(ParallelEnv):
         #         resource_manager_action_mask.append(1)
         #         resource_manager_action_mask.append(0)
 
-        # if None or connected do not need connect
-        connection_action_mask = [
-            0 if c is None or c.connected else 1 for c in self.rsus[rsu_idx].connections
+        # if None do not need job_handle
+        job_handle_action_mask = [
+            0 if c is None else 1 for c in self.rsus[rsu_idx].connections
         ]
         # if None or not connected do not need resource manage
         # so only connected need
@@ -519,7 +570,7 @@ class Env(ParallelEnv):
 
         # 1 * connction + 2 * resourceman + caching
         return (
-            connection_action_mask
+            job_handle_action_mask
             + resource_manager_action_mask * 2
             + caching_action_mask
         )
@@ -529,12 +580,52 @@ class Env(ParallelEnv):
         # action mask based on veh and rsu state
         for idx, action in enumerate(list(actions.values())):
             rsu = self.rsus[idx]
+            # decode action
+            job_handling_action = action[: self.max_connections]
+            computing_power_allocation = action[
+                self.max_connections : 2 * self.max_connections
+            ]
+            bandwidth_allocation = action[
+                2 * self.max_connections : 3 * self.max_connections
+            ]
+            caching_decision = action[3 * self.max_connections :]
+
+            # excute job_handling
+            for jh_action in job_handling_action:
+                if jh_action == self.num_rsus + 1:
+                    continue  # not handling or continue
+                elif jh_action == self.num_rsus:
+                    ...  # cloud handling
+                else:
+                    self.rsus[jh_action].handle_job()
+
+            # allocate computing power
+            total_computing_power = sum(computing_power_allocation)
+            if total_computing_power > 0:
+                normalized_computing_power = [
+                    cp / total_computing_power for cp in computing_power_allocation
+                ]
+                rsu.allocate_computing_power(normalized_computing_power)
+
+            # allocate bw
+            total_bandwidth = sum(bandwidth_allocation)
+            if total_bandwidth > 0:
+                normalized_bandwidth = [
+                    bw / total_bandwidth for bw in bandwidth_allocation
+                ]
+                rsu.allocate_bandwidth(normalized_bandwidth)
+
+            # excuete caching policy
+            if self.time_step % self.caching_step == 0:
+                rsu.cache_content(caching_decision)
 
         self._manage_resources()
         pass
 
-    def _update_observations(self):
+    def _calculate_rewards(self):
+        pass
 
+    def _update_observations(self):
         pass
 
     def _manage_resources(self):
@@ -590,6 +681,7 @@ class Env(ParallelEnv):
                 vehicle_x, vehicle_y = veh.position.x, veh.position.y
                 vehicle_coord = np.array([vehicle_x, vehicle_y])
 
+                # find vehicle_coord range has rsu?
                 indices = self.rsu_tree.query_ball_point(
                     vehicle_coord, self.max_distance
                 )
@@ -597,11 +689,12 @@ class Env(ParallelEnv):
                 for idx in indices:
                     rsu = self.rsus[idx]
                     conn = Connection(rsu, veh)
-                    # update rsu conn queue
+                    # update rsu conn queue, only one here
                     matching_connection = [c for c in rsu.connections if c == conn]
-                    # if exist, update veh info else append
+                    # if rsu--veh exist, update veh info else append
                     if matching_connection:
                         matching_connection[0].veh = veh
+                        conn = matching_connection[0]
                     else:
                         rsu.connections.append(conn)
 
@@ -623,7 +716,7 @@ class Env(ParallelEnv):
                 #             if c.veh.vehicle_id != veh.vehicle_id
                 #         ]
 
-            # conn remove logical #2
+            # conn remove logical #2 i.e. loss connected, if veh connecting any rsu, job would not nerver loss until job done
             for rsu in self.rsus:
                 for idx, c in enumerate(rsu.connections):
                     if c is None:
