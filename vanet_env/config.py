@@ -62,6 +62,10 @@ RSU_SNR_THRESHOLD = 2e-8
 RSU_NUM_ANTENNA = 4
 # Data rate threshold
 DATA_RATE_TR = 8
+# cpu cores
+NUM_CORES = 8
+# max downlink connections
+MAX_CONNECTIONS = 10
 
 # Vehicle Config
 NUM_VEHICLES = 50
@@ -71,6 +75,7 @@ VEHICLE_ANTENNA_HEIGHT = 1.5
 MAX_JOB_SIZE = 256
 # content num
 NUM_CONTENT = 100
+
 
 # Render Config
 

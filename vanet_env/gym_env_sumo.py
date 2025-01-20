@@ -79,7 +79,8 @@ class Env(ParallelEnv):
         random.seed(self.seed)
 
         # important
-        self.max_connections = 10
+        self.max_connections = config.MAX_CONNECTIONS
+        self.num_cores = config.NUM_CORES
         self.max_content = 100
         self.max_caching = config.RSU_CACHING_CAPACITY
         # rsu range veh wait for connections
@@ -431,8 +432,9 @@ class Env(ParallelEnv):
         # combined
         md_combined_space = spaces.MultiDiscrete(
             [self.num_rsus + 2] * self.max_connections
-            + [self.max_weight] * self.max_connections
-            + [self.max_weight] * self.max_connections
+            + [2] * self.num_cores  # handling arrival job? 0 for not, 1 for yes
+            + [self.max_weight] * self.num_cores  # computing power alloc
+            + [self.max_weight] * self.num_cores  # bw alloc
             + [self.max_content] * self.max_caching
         )
 
@@ -676,7 +678,7 @@ class Env(ParallelEnv):
 
                     if distance <= self.max_distance:
                         conn = Connection(rsu, veh)
-                        rsu.connections.append(conn)
+                        rsu.connections_queue.append(conn)
                         self.connections_queue.append(conn)
         else:
             # connections update
@@ -696,7 +698,7 @@ class Env(ParallelEnv):
                         and veh.connections[i].rsu.id not in indices
                     ):
                         veh.connections[i] = None
-                        
+
                 # veh.connections = [
                 #     connection
                 #     for connection in veh.connections
@@ -744,14 +746,17 @@ class Env(ParallelEnv):
                 #             if c.veh.vehicle_id != veh.vehicle_id
                 #         ]
 
-            # conn remove logical #2 i.e. loss connected, if veh connecting any rsu, job would nerver loss until job done
+            # rsu conn remove logical #2 i.e. loss connected
             for rsu in self.rsus:
-                for idx, c in enumerate(rsu.connections):
+                for idx, c in enumerate(rsu.connections_queue):
                     if c is None:
                         continue
 
                     if c not in self.connections_queue:
-                        rsu.connections.remove(idx)
+                        rsu.connections_queue.remove(idx)
+
+            # job disconnected logical
+
             # check if veh out
             # issue
             # for rsu in self.rsus:

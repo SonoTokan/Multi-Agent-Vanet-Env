@@ -29,12 +29,18 @@ class OrderedQueueList:
         else:
             self.olist = [None] * max_size
 
+    def queue_jumping(self, elem):
+        """Insert the element into the head of the queue"""
+        self.olist = [elem] + self.olist[:-1]
+        pass
+
+    # Queuing
     def append(self, elem):
         for i in range(self.max_size):
             if self.olist[i] is None:
                 self.olist[i] = elem
                 return True
-        return False  # 如果没有空位，返回 False
+        return False
 
     def insert(self, elem, index):
         self.olist[index] = elem
@@ -98,7 +104,8 @@ class Rsu:
         computation_power=config.RSU_COMPUTATION_POWER,
         caching_capacity=config.RSU_CACHING_CAPACITY,
         num_atn=config.RSU_NUM_ANTENNA,
-        max_connection=10,
+        max_connections=10,
+        max_cores=8,
     ):
         self.id = id
         self.position = position
@@ -110,10 +117,12 @@ class Rsu:
         self.computation_power = computation_power
         self.caching_capacity = caching_capacity
         self.snr_threshold = snr_threshold
-        self.connections = OrderedQueueList(max_connection)
-        self.handling_job = OrderedQueueList(max_connection)  # may not necessary
-        self.bw_alloc = OrderedQueueList(max_connection)
-        self.computation_power_alloc = OrderedQueueList(max_connection)
+        self.max_connections = max_connections
+        self.max_cores = max_cores
+        self.connections_queue = OrderedQueueList(max_connections)
+        self.handling_job_queue = OrderedQueueList(max_cores)  # may not necessary
+        self.bw_alloc = OrderedQueueList(max_cores)
+        self.computation_power_alloc = OrderedQueueList(max_cores)
         self.caching_content = OrderedQueueList(caching_capacity)
         self.num_atn = num_atn
 
@@ -186,6 +195,9 @@ class Vehicle:
 
         # connected rsus, may not needed
         self.connections = OrderedQueueList(max_connections)
+
+    def job_info(self):
+        return max(self.job_size - self.job_processed, 0)
 
     def update_pos_direction(self):
         self.position = Point(self.sumo.vehicle.getPosition(self.vehicle_id))
