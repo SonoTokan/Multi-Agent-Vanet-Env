@@ -82,8 +82,10 @@ def osmx_test():
 # 500s takes 11 seconds new render
 # + queue list
 # 11,405,122 function calls (11404904 primitive calls) in 15.304 seconds
-# + lot of logicals
+# + lots of logicals
 # 12,107,925 function calls (12107707 primitive calls) in 14.846 seconds
+# + lots of logicals
+# 12,041,754 function calls (12041532 primitive calls) in 11.103 seconds
 #
 # None render
 # 500 step-normal: 1,920,955 function calls in 1.502 seconds
@@ -105,16 +107,20 @@ def osmx_test():
 # 2,364,018 function calls (2363800 primitive calls) in 2.033 seconds
 # + veh logicals
 # 2,652,298 function calls (2652080 primitive calls) in 2.224 seconds
+# + frame step
+# 1,867,325 function calls (1867095 primitive calls) in 1.448 seconds
 # 3600 steps
 # 13,356,345 function calls in 11.738 seconds
 
 
 # fps 144?
 def sumo_env_test():
+    fps = 10
     # render_mode="human", None
-    env = Env("human")
+    env = Env(None, fps=fps)
     obs, infos = env.reset()
-    for i in range(500):
+
+    for i in range(500 * fps):
         env.step({})
         env.render()
 

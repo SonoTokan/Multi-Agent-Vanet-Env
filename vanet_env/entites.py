@@ -30,7 +30,10 @@ class OrderedQueueList:
             self.olist = [None] * max_size
 
     def queue_jumping(self, elem):
-        """Insert the element into the head of the queue"""
+        """
+        Insert the element into the head of the queue
+        for self job handling
+        """
         self.olist = [elem] + self.olist[:-1]
         pass
 
@@ -42,6 +45,7 @@ class OrderedQueueList:
                 return True
         return False
 
+    # not really insert
     def insert(self, elem, index):
         self.olist[index] = elem
 
@@ -104,9 +108,11 @@ class Rsu:
         computation_power=config.RSU_COMPUTATION_POWER,
         caching_capacity=config.RSU_CACHING_CAPACITY,
         num_atn=config.RSU_NUM_ANTENNA,
+        tx_gain=config.ANTENNA_GAIN,
         max_connections=10,
         max_cores=8,
     ):
+        # args
         self.id = id
         self.position = position
         self.bw = bw
@@ -117,16 +123,28 @@ class Rsu:
         self.computation_power = computation_power
         self.caching_capacity = caching_capacity
         self.snr_threshold = snr_threshold
+        self.tx_gain = tx_gain
         self.max_connections = max_connections
         self.max_cores = max_cores
+        self.num_atn = num_atn
+
         self.connections_queue = OrderedQueueList(max_connections)
+        self.connections = OrderedQueueList(max_connections)
         self.handling_job_queue = OrderedQueueList(max_cores)  # may not necessary
+        self.handling_jobs = OrderedQueueList(max_cores)
         self.bw_alloc = OrderedQueueList(max_cores)
         self.computation_power_alloc = OrderedQueueList(max_cores)
         self.caching_content = OrderedQueueList(caching_capacity)
-        self.num_atn = num_atn
 
-    def allocate_computing_power(self, ac_list: list):
+        self.cp_usage = 100
+        self.bw_ratio = 100
+        self.tx_ratio = 100
+
+    def get_tx_power(self):
+        return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
+
+    def allocate_computing_power(self, ac_list: list, cp_usage):
+        self.cp_usage = cp_usage
         self.computation_power_alloc = np.copy(ac_list)
         ...
 
@@ -134,13 +152,36 @@ class Rsu:
         self.caching_content = np.copy(cc_list)
         ...
 
-    def allocate_bandwidth(self, abw_list: list):
+    def allocate_bandwidth(self, abw_list: list, bw_ratio):
+        self.bw_ratio = bw_ratio
         self.bw_alloc = np.copy(abw_list)
         ...
 
-    def handle_job(self, job):
-        # pending handle
+    def handling_job(self, jbh_list: list):
+        # handle
+        for idx, hconn in enumerate(self.handling_job_queue):
+            # handle if 1
+            if jbh_list[idx]:
+                # dev tag: append or direct change?
+                # if append, need remove logical
+                if hconn not in self.handling_jobs:
+                    hconn.veh.job.processing_rsu_id = self.id
+                    self.handling_jobs.append(hconn)
+            # else:
+            #     hconn.disconnect()
         ...
+
+    def queuing_job(self, conn, cloud=False):
+        if cloud:
+            # there can be modify to more adaptable
+            conn.veh.job.processing_rsu_id = config.NUM_RSU
+
+        # pending handle
+        # if self handling, queue-jumping
+        if conn.rsu.id == self.id:
+            self.handling_job_queue.queue_jumping(conn)
+        else:
+            self.handling_job_queue.append(conn)
 
     def distance(self, vh_position):
         return np.sqrt(
@@ -171,6 +212,23 @@ class Rsu:
             )
 
 
+class Job:
+    def __init__(self, job_id, job_size, job_type):
+        self.job_id = job_id
+        self.job_size = job_size
+        self.job_type = job_type
+        # processed size
+        self.job_processed = 0
+        # processing rsu
+        self.processing_rsu_id = None
+
+    def done(self):
+        return self.job_size - self.job_processed <= 0
+
+    def job_info(self):
+        return max(self.job_size - self.job_processed, 0)
+
+
 class Vehicle:
     def __init__(
         self, vehicle_id, sumo, init_all=True, seed=config.SEED, max_connections=4
@@ -184,10 +242,13 @@ class Vehicle:
 
         random.seed(self.seed)
 
-        self.job_size = random.randint(8, config.MAX_JOB_SIZE)
-        self.job_processed = 0
+        job_size = random.randint(8, config.MAX_JOB_SIZE)
+
         # Need for popularity modeling
-        self.job_type = random.randint(0, config.NUM_CONTENT)
+        job_type = random.randint(0, config.NUM_CONTENT)
+
+        # single job, id is veh id
+        self.job = Job(vehicle_id, job_size, job_type)
 
         if init_all:
             self.position = Point(sumo.vehicle.getPosition(vehicle_id))
@@ -195,9 +256,6 @@ class Vehicle:
 
         # connected rsus, may not needed
         self.connections = OrderedQueueList(max_connections)
-
-    def job_info(self):
-        return max(self.job_size - self.job_processed, 0)
 
     def update_pos_direction(self):
         self.position = Point(self.sumo.vehicle.getPosition(self.vehicle_id))
@@ -263,21 +321,33 @@ class CustomVehicle(Vehicle):
 
 
 class Connection:
-    def __init__(self, rsu: Rsu, veh: Vehicle, data_rate=0.0):
+    def __init__(self, rsu: Rsu, veh: Vehicle, data_rate=0.0, cloud=False):
+        self.is_cloud = cloud
+
         self.veh = veh
-        self.rsu = rsu
+        self.rsu = None if self.is_cloud else rsu
         self.data_rate = data_rate
         self.connected = False
         # str
         self.id = str(rsu.id) + veh.vehicle_id
 
-    def connect(self):
+    def check_connection(self):
+        return self.is_cloud if not self.connected else True
+
+    def connect(self, rsu, is_cloud=False):
         """
         only connect when take action
         """
-        self.connected = True
+        if is_cloud:
+            self.is_cloud = True
+            self.rsu = None
+        else:
+            self.rsu = rsu
+            self.connected = True
 
     def disconnect(self):
+        self.rsu = None
+        self.is_cloud = False
         self.connected = False
 
     def __eq__(self, other):

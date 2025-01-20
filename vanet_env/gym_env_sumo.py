@@ -63,7 +63,12 @@ class Env(ParallelEnv):
     metadata = {"name": "sumo_vanet_environment_v0", "render_modes": ["human", None]}
 
     def __init__(
-        self, render_mode="human", max_step=3600, multi_core=8, caching_step=100
+        self,
+        render_mode="human",
+        multi_core=8,
+        caching_step=100,
+        fps=10,
+        max_step=36000,  # need focus on fps
     ):
 
         self.num_rsus = config.NUM_RSU
@@ -87,16 +92,20 @@ class Env(ParallelEnv):
         self.max_queue_len = 10
         # every single weight
         self.max_weight = 100
+        # fps means frame per second(frame per sumo timestep)
+        self.fps = fps
 
         # init rsus
         self.rsus = [
             Rsu(
                 id=i,
                 position=Point(config.RSU_POSITIONS[i]),
-                max_connection=self.max_connections,
+                max_connections=self.max_connections,
+                max_cores=self.num_cores,
             )
             for i in range(self.num_rsus)
         ]
+        self.rsu_ids = [i for i in range(self.num_rsus)]
 
         # max data rate
         self.max_data_rate = network.max_rate(self.rsus[0])
@@ -123,9 +132,6 @@ class Env(ParallelEnv):
         agents = ["rsu_" + str(i) for i in range(self.num_rsus)]
         self.possible_agents = agents[:]
         self.time_step = 0
-
-        self._sumo_init()
-        self._space_init()
 
     def _sumo_init(self):
         # SUMO detector
@@ -364,12 +370,18 @@ class Env(ParallelEnv):
 
         # only this space tested
         # mixed: for every single agent, global aggregated but local not
-        # every rsu's avg bw, cp, job, conn state and veh pos, job info in this rsu's range
+        # every rsu's avg bw, cp, job, conn state and veh pos (x, y) in range
         self.mixed_md_observation_space = spaces.MultiDiscrete(
-            [self.max_weight] * self.num_rsus * 4
-            + [self.max_weight] * self.max_connections
-            + [int(self.map_size[0])] * self.max_connections
-            + [int(self.map_size[1])] * self.max_connections
+            [self.max_weight] * self.num_rsus * 3  # avg bw, cp, job, statu per rsu
+            + [100] * 2  # cp, bw ratio remaining per rsu
+            + [self.max_weight] * self.num_cores  # self job status (remaing size ratio)
+            + [2] * self.num_cores  # self job arrival 0 means none job arrival
+            + [2] * self.num_cores  # self job handling 0 means not handling
+            + [2] * self.max_connections  # self connection queue status 0 means none
+            + [int(self.map_size[0])]
+            * self.max_connections  # self range veh x 0 means none
+            + [int(self.map_size[1])]
+            * self.max_connections  # self range veh y 0 means none
         )
 
         job_handling_space = spaces.MultiDiscrete(
@@ -431,11 +443,14 @@ class Env(ParallelEnv):
 
         # combined
         md_combined_space = spaces.MultiDiscrete(
-            [self.num_rsus + 2] * self.max_connections
+            [self.num_rsus + 2]
+            * self.max_connections  # job connect and to rsu.id or cloud, 0 means self, num_rsu + 1 means not connect
             + [2] * self.num_cores  # handling arrival job? 0 for not, 1 for yes
             + [self.max_weight] * self.num_cores  # computing power alloc
             + [self.max_weight] * self.num_cores  # bw alloc
-            + [self.max_content] * self.max_caching
+            + [self.max_content] * self.max_caching  # caching policy
+            + [100]  # computing power usage  %
+            + [100]  # bw ratio %
         )
 
         self.md_single_action_space = md_combined_space
@@ -445,31 +460,35 @@ class Env(ParallelEnv):
         )
 
     def reset(self, seed=None, options=None):
+        self._sumo_init()
+        self._space_init()
+
         self.vehicle_ids = self.sumo.vehicle.getIDList()
 
         self.vehicles = [
             Vehicle(vehicle_id, self.sumo) for vehicle_id in self.vehicle_ids
         ]
+        self.pending_job_vehicles = self.vehicles
 
         self._update_connections_queue()
 
         self.agents = np.copy(self.possible_agents)
         self.time_step = 0
         # every rsu's avg bw, cp, job, conn state and veh, job info in this rsu's range
-        self.mixed_md_observation_space = spaces.MultiDiscrete(
-            [self.max_weight] * self.num_rsus * 4
-            + [self.max_weight] * self.max_connections * 3
-        )
+        # self.mixed_md_observation_space = spaces.MultiDiscrete(
+        #     [self.max_weight] * self.num_rsus * 4
+        #     + [self.max_weight] * self.max_connections * 3
+        # )
 
-        observation = np.zeros(
-            (
-                self.num_rsus * 4
-                + self.max_connections
-                + self.max_connections
-                + self.max_connections
-            ),
-            dtype=int,
-        ).tolist()  # not sure need or not
+        observation = [0] * (
+            self.num_rsus * 3  # avg bw, cp, job, statu per rsu
+            + 2  # cp, bw ratio remaining per rsu
+            + self.num_cores  # self job status (remaining size ratio)
+            + self.num_cores  # self job handling 0 means not handling
+            + self.max_connections  # self connection queue status 0 means none
+            + self.max_connections  # self range veh x 0 means none
+            + self.max_connections  # self range veh y 0 means none
+        )  # not sure need or not
 
         # do not take any action except caching at start
         observations = {
@@ -491,15 +510,19 @@ class Env(ParallelEnv):
         self._take_actions(actions)
 
         # caculate rewards
+        # dev tag: calculate per timestep? or per fps?
         rewards = self._calculate_rewards()
 
-        # sumo sim step after take action and before update env
-        self.sumo.simulationStep()
+        # sumo simulation every 10 time steps
+        if self.time_step % self.fps == 0:
+            self.sumo.simulationStep()
+            # update veh status after sim step
+            self._update_vehicles()
+            # update connections, very important
+            self._update_connections_queue()
 
-        # update veh after sim step
-        self._update_vehicles()
-
-        self._update_connections_queue()
+        # update rsu infos, remove deprecated job, process jobs
+        self._update_rsus_jobs()
 
         # update observation space
         observations = self._update_observations()
@@ -513,7 +536,16 @@ class Env(ParallelEnv):
         truncations = {a: True for a in self.agents}
         infos = {a: {} for a in self.agents}
 
+        self.time_step += 1
+
         return observations, rewards, terminations, truncations, infos
+
+    def _update_rsus_jobs(self):
+        # job deprecated check and remove
+        for rsu_idx, rsu in enumerate(self.rsus):
+            for hconn in rsu.handling_jobs:
+                if hconn is not None:
+                    hconn.veh.job
 
     def _update_vehicles(self):
         current_vehicle_ids = set(self.sumo.vehicle.getIDList())
@@ -539,92 +571,166 @@ class Env(ParallelEnv):
         for vehicle in self.vehicles:
             vehicle.update_pos_direction()
 
+        # vehs need pending job
+        self.pending_job_vehicles = [veh for veh in self.vehicles if not veh.job.done()]
+
     def _single_action_mask(self, rsu_idx):
-        connection_action_mask = []
-        resource_manager_action_mask = []
+        """
+        space:
+        md_combined_space = spaces.MultiDiscrete(
+            [self.num_rsus + 2]
+            * self.max_connections  # job connect and to rsu.id or cloud, 0 means self, num_rsu + 1 means not connect
+            + [2] * self.num_cores  # handling arrival job? 0 for not, 1 for yes
+            + [self.max_weight] * self.num_cores  # computing power alloc
+            + [self.max_weight] * self.num_cores  # bw alloc
+            + [self.max_content] * self.max_caching  # caching policy
+            + [100]  # computing power usage  %
+            + [100]  # bw ratio %
+        )
+        """
+        # per fps need connection policy
+        if self.time_step % self.fps == 0:
+            connection_action_mask = [
+                0 if c is None else 1 for c in self.rsus[rsu_idx].connections_queue
+            ]
+        else:
+            connection_action_mask = [0] * self.max_connections
 
-        # for c in self.rsus[rsu_idx].connections:
-        #     if c is None:
-        #         connection_action_mask.append(0)
-        #         resource_manager_action_mask.append(0)
-        #         continue
+        # dev tag: Maybe split the frame gap, e.g. sumo's timestep is 1s, our own time step is set to 1/10 i.e. 0.1s means 10fps
+        # every frame beginning
+        if self.time_step % self.fps == 1:
+            job_handle_action_mask = [1] * self.num_cores
+        else:
+            job_handle_action_mask = [0] * self.num_cores
 
-        #     if c.connected:
-        #         connection_action_mask.append(0)
-        #         resource_manager_action_mask.append(1)
-        #     else:
-        #         resource_manager_action_mask.append(1)
-        #         resource_manager_action_mask.append(0)
-
-        # if None do not need job_handle
-        job_handle_action_mask = [
-            0 if c is None else 1 for c in self.rsus[rsu_idx].connections
-        ]
-        # if None or not connected do not need resource manage
-        # so only connected need
+        # only queued job need
         resource_manager_action_mask = [
-            0 if c is None or not c.connected else 1
-            for c in self.rsus[rsu_idx].connections
+            0 if hconn is None else 1 for hconn in self.rsus[rsu_idx].handling_jobs
         ]
 
         caching_action_mask = [0] * self.max_caching
 
+        # dev tag: would caching_step eq fps?
         if self.time_step % self.caching_step == 0:
             caching_action_mask = [1] * self.max_caching
 
         # 1 * connction + 2 * resourceman + caching
         return (
-            job_handle_action_mask
+            connection_action_mask
+            + job_handle_action_mask
             + resource_manager_action_mask * 2
             + caching_action_mask
+            + [1]
+            + [1]
         )
 
     def _take_actions(self, actions):
         # action rsu 0 -- n
-        # action mask based on veh and rsu state
-        for idx, action in enumerate(list(actions.values())):
-            rsu = self.rsus[idx]
-            # decode action
-            job_handling_action = action[: self.max_connections]
-            computing_power_allocation = action[
-                self.max_connections : 2 * self.max_connections
-            ]
-            bandwidth_allocation = action[
-                2 * self.max_connections : 3 * self.max_connections
-            ]
-            caching_decision = action[3 * self.max_connections :]
+        # first, connections/job handling, after first time step(first sim), take actions
+        if self.time_step % self.fps == 1:
+            for idx, action in enumerate(list(actions.values())):
+                rsu = self.rsus[idx]
+                # decode action
+                connections_handling = action[: self.max_connections]
 
-            # excute job_handling
-            # not implement enough
-            for jh_action in job_handling_action:
-                if jh_action == self.num_rsus + 1:
-                    continue  # not handling or continue
-                elif jh_action == self.num_rsus:
-                    ...  # cloud handling
-                else:
-                    self.rsus[jh_action].handle_job()
+                # excute job_handling
+                for conn_idx, jh_action in enumerate(connections_handling):
+                    conn = rsu.connections_queue[conn_idx]
 
-            # allocate computing power
-            total_computing_power = sum(computing_power_allocation)
-            if total_computing_power > 0:
-                normalized_computing_power = [
-                    cp / total_computing_power for cp in computing_power_allocation
+                    if jh_action == self.num_rsus + 1:
+                        continue  # not handling or continue pre policy
+                    elif jh_action == self.num_rsus:
+                        # cloud handling
+                        # direct connect to cloud
+                        conn.connect(rsu, is_cloud=True)
+                        rsu.queuing_job(conn, cloud=True)
+                        ...
+                    else:
+                        conn.connect(rsu)
+                        self.rsus[jh_action].queuing_job(conn)
+                    # # dev tag: if 0 means self then
+                    # elif jh_action == 0:
+                    #     # self handling
+                    #     conn.connect(rsu)
+                    #     rsu.queuing_job(conn)
+                    #     ...
+                    # else:
+                    #     conn.connect(rsu)
+                    #
+                    #     # if jh_action ≤ idx, ids-1, for exclude idx
+                    #     self.rsus[
+                    #         (
+                    #             self.rsu_ids[jh_action] - 1
+                    #             if jh_action <= idx
+                    #             else self.rsu_ids[jh_action]
+                    #         )
+                    #     ].queuing_job(conn)
+        else:
+            # seconde, resources handling
+            for idx, action in enumerate(list(actions.values())):
+                # Take job at the beginning of each frame step. dev tag: or every frame step?
+                if self.time_step % self.fps == 2:
+                    arrival_job_handling_action = action[
+                        self.max_connections : self.max_connections + self.num_cores
+                    ]
+                    # arrival job handling
+                    self.rsus[idx].handling_job(arrival_job_handling_action)
+
+                computing_power_allocation = action[
+                    self.max_connections
+                    + self.num_cores : self.max_connections
+                    + self.num_cores * 2
                 ]
-                rsu.allocate_computing_power(normalized_computing_power)
-
-            # allocate bw
-            total_bandwidth = sum(bandwidth_allocation)
-            if total_bandwidth > 0:
-                normalized_bandwidth = [
-                    bw / total_bandwidth for bw in bandwidth_allocation
+                bandwidth_allocation = action[
+                    self.max_connections
+                    + self.num_cores * 2 : self.max_connections
+                    + self.num_cores * 3
                 ]
-                rsu.allocate_bandwidth(normalized_bandwidth)
 
-            # excuete caching policy
-            if self.time_step % self.caching_step == 0:
-                rsu.cache_content(caching_decision)
+                caching_decision = action[
+                    self.max_connections
+                    + self.num_cores * 3 : self.max_connections
+                    + self.num_cores * 3
+                    + self.max_caching
+                ]
+                cp_usage = action[
+                    self.max_connections
+                    + self.num_cores * 3
+                    + self.max_caching : self.max_connections
+                    + self.num_cores * 3
+                    + self.max_caching
+                    + 1
+                ]
+                bw_ratio = action[
+                    self.max_connections
+                    + self.num_cores * 3
+                    + self.max_caching
+                    + 1 : self.max_connections
+                    + self.num_cores * 3
+                    + self.max_caching
+                    + 2
+                ]
 
-        self._manage_resources()
+                # allocate computing power
+                total_computing_power = sum(computing_power_allocation)
+                if total_computing_power > 0:
+                    normalized_computing_power = [
+                        cp / total_computing_power for cp in computing_power_allocation
+                    ]
+                    rsu.allocate_computing_power(normalized_computing_power, cp_usage)
+
+                # allocate bw
+                total_bandwidth = sum(bandwidth_allocation)
+                if total_bandwidth > 0:
+                    normalized_bandwidth = [
+                        bw / total_bandwidth for bw in bandwidth_allocation
+                    ]
+                    rsu.allocate_bandwidth(normalized_bandwidth, bw_ratio)
+
+                # excuete caching policy
+                if self.time_step % self.caching_step == 0:
+                    rsu.cache_content(caching_decision)
+
         pass
 
     def _calculate_rewards(self):
@@ -636,16 +742,16 @@ class Env(ParallelEnv):
     def _manage_resources(self):
         # connections info update
         # bw policy here
-        for conn in self.connections_queue:
-            rsu = conn.rsu
-            veh = conn.veh
-            data_rate = (
-                network.channel_capacity(rsu, veh)
-                * rsu.num_atn
-                / len(rsu.connections.olist)
-            )
+        # for conn in self.connections_queue:
+        #     rsu = conn.rsu
+        #     veh = conn.veh
+        #     data_rate = (
+        #         network.channel_capacity(rsu, veh)
+        #         * rsu.num_atn
+        #         / len(rsu.connections_queue.olist)
+        #     )
 
-            conn.data_rate = data_rate
+        #     conn.data_rate = data_rate
         pass
 
     # peformance issue
@@ -663,7 +769,7 @@ class Env(ParallelEnv):
         # disordered issue
         if kdtree == False:
             # not implement!
-            for veh in self.vehicles:
+            for veh in self.pending_job_vehicles:
                 vehicle_x, vehicle_y = veh.position.x, veh.position.y
 
                 for rsu in self.rsus:
@@ -682,7 +788,10 @@ class Env(ParallelEnv):
                         self.connections_queue.append(conn)
         else:
             # connections update
-            for veh in self.vehicles:
+            for veh in self.pending_job_vehicles:
+                if veh.job.done():
+                    continue
+
                 vehicle_x, vehicle_y = veh.position.x, veh.position.y
                 vehicle_coord = np.array([vehicle_x, vehicle_y])
 
@@ -697,13 +806,8 @@ class Env(ParallelEnv):
                         veh.connections[i] is not None
                         and veh.connections[i].rsu.id not in indices
                     ):
+                        veh.connections[i].disconnect()
                         veh.connections[i] = None
-
-                # veh.connections = [
-                #     connection
-                #     for connection in veh.connections
-                #     if connection.rsu.id in indices
-                # ]
 
                 # is there need choose one to prefer connect?
                 for idx in indices:
@@ -711,16 +815,20 @@ class Env(ParallelEnv):
                     conn = Connection(rsu, veh)
 
                     # update rsu conn queue, only one here
-                    matching_connection = [c for c in rsu.connections if c == conn]
+                    matching_connection = [
+                        c for c in rsu.connections_queue if c == conn
+                    ]
+
                     # if rsu--veh exist, update veh info else append
                     if matching_connection:
                         matching_connection[0].veh = veh
                         conn = matching_connection[0]
                     else:
-                        rsu.connections.append(conn)
+                        rsu.connections_queue.append(conn)
 
                     # update veh conn queue, only one here
-                    veh_matching_connection = [c for c in rsu.connections if c == conn]
+                    # need update to new logical, i.e. conn replace rsu?
+                    veh_matching_connection = [c for c in veh.connections if c == conn]
                     # if veh--rsu exist, update veh info else append
                     if veh_matching_connection:
                         veh_matching_connection[0].veh = veh
@@ -746,13 +854,14 @@ class Env(ParallelEnv):
                 #             if c.veh.vehicle_id != veh.vehicle_id
                 #         ]
 
-            # rsu conn remove logical #2 i.e. loss connected
+            # rsu conn remove logical #2 i.e. connection loss
             for rsu in self.rsus:
                 for idx, c in enumerate(rsu.connections_queue):
                     if c is None:
                         continue
 
                     if c not in self.connections_queue:
+                        rsu.connections_queue[idx].disconnect()
                         rsu.connections_queue.remove(idx)
 
             # job disconnected logical
@@ -834,6 +943,7 @@ class Env(ParallelEnv):
             # get veh ID
 
             # clear all dynamic rendered polygon
+            # draw QoE
             for polygon_id in self.sumo.polygon.getIDList():
                 if polygon_id.startswith("dynamic_"):
                     self.sumo.polygon.remove(polygon_id)

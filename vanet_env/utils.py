@@ -207,4 +207,3 @@ def test():
         print(is_empty([]), is_empty([None] * 2))
 
 
-test()

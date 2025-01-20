@@ -65,7 +65,7 @@ class OkumuraHata:
         received_power_w = rsu.snr_threshold * rsu.noise_power
         received_power_dbm = 10 * np.log10(received_power_w) + 30
 
-        path_loss = rsu.transmitted_power - received_power_dbm
+        path_loss = rsu.get_tx_power() - received_power_dbm
 
         if city_type == "large":
             if rsu.frequency <= 200:
@@ -289,13 +289,18 @@ def snr(rsu: Rsu, vh: Vehicle, path_loss_func="winner_b1"):
 
     if path_loss_func == "winner_b1":
         d1, d2 = rsu.get_d1_d2(vh.get_position(), vh.get_angle())
-        path_loss = WinnerB1().path_loss_nlos(
-            d1, d2, rsu.frequency * 1e-3, rsu.height, vh.height
+        # dev tag: need minus gain
+        # EIRP（Effective Isotropic Radiated Power)
+        path_loss = (
+            WinnerB1().path_loss_nlos(
+                d1, d2, rsu.frequency * 1e-3, rsu.height, vh.height
+            )
         )
+
     else:
         path_loss = OkumuraHata().okumura_hata_path_loss(rsu, vh)
 
-    snr = dbm_to_watt(rsu.transmitted_power - path_loss) / rsu.noise_power
+    snr = dbm_to_watt(rsu.get_tx_power() - path_loss) / rsu.noise_power
     return snr
 
 

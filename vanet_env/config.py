@@ -40,8 +40,8 @@ NUM_RSU = len(RSU_POSITIONS)
 RSU_COMPUTATION_POWER = 256
 # Caching Capacity
 RSU_CACHING_CAPACITY = 10
-# Transmitted power (( P_t )): 1 Watt (30 dBm)
-RSU_TRANSMITTED_POWER = 30
+# Transmitted power (( P_t )): 1 Watt (27 dBm)
+RSU_TRANSMITTED_POWER = 27
 # Noise power (( N )): ( 10^{-9} ) Watts (-90 dBm)
 RSU_NOISE_POWER = 1e-9
 # Max Transmitted Bandwidth (( B )): 20 MHz, i.e. 20e6 Hz
@@ -60,6 +60,9 @@ RSU_PATH_LOSS_REFERENCE_DISTANCE = 40
 RSU_SNR_THRESHOLD = 2e-8
 # MIMO, numbers of antenna
 RSU_NUM_ANTENNA = 4
+# ANTENNA Gain (( dBi )), V2X Omnidirectional Fiberglass Antenna
+ANTENNA_GAIN = 3
+
 # Data rate threshold
 DATA_RATE_TR = 8
 # cpu cores
