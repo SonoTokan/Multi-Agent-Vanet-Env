@@ -26,7 +26,7 @@ import gymnasium as gym
 from gymnasium import spaces
 
 # custom
-from vanet_env import config, network, caching
+from vanet_env import config, network, caching, utility
 from vanet_env.utils import (
     RSU_MARKER,
     VEHICLE_MARKER,
@@ -762,7 +762,7 @@ class Env(ParallelEnv):
         rewards = {}
         for idx, a in enumerate(self.agents):
             rsu = self.rsus[idx]
-            
+            utility.utility(rsu)
         pass
 
     def _update_observations(self):

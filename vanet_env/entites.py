@@ -134,7 +134,7 @@ class Rsu:
         self.handling_jobs = OrderedQueueList(max_cores)
         self.bw_alloc = OrderedQueueList(max_cores)
         self.computation_power_alloc = OrderedQueueList(max_cores)
-        self.caching_content = OrderedQueueList(caching_capacity)
+        self.caching_contents = OrderedQueueList(caching_capacity)
 
         self.cp_usage = 100
         self.bw_ratio = 100
@@ -149,7 +149,7 @@ class Rsu:
         ...
 
     def cache_content(self, cc_list: list):
-        self.caching_content = np.copy(cc_list)
+        self.caching_contents = np.copy(cc_list)
         ...
 
     def allocate_bandwidth(self, abw_list: list, bw_ratio):
