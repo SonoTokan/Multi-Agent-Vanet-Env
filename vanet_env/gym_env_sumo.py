@@ -483,7 +483,12 @@ class Env(ParallelEnv):
         self.vehicle_ids = self.sumo.vehicle.getIDList()
 
         self.vehicles = [
-            Vehicle(vehicle_id, self.sumo) for vehicle_id in self.vehicle_ids
+            Vehicle(
+                vehicle_id,
+                self.sumo,
+                self.cache.get_content(self.time_step // self.caching_step),
+            )
+            for vehicle_id in self.vehicle_ids
         ]
         self.pending_job_vehicles = self.vehicles
 
@@ -526,8 +531,9 @@ class Env(ParallelEnv):
         # take action
         self._take_actions(actions)
 
-        # update rsu infos, remove deprecated job, process jobs
-        self._update_rsus_jobs()
+        # update rsu infos, remove deprecated job
+        # not necessary
+        self._update_rsus()
 
         # caculate rewards
         # dev tag: calculate per timestep? or per fps?
@@ -557,12 +563,10 @@ class Env(ParallelEnv):
 
         return observations, rewards, terminations, truncations, infos
 
-    def _update_rsus_jobs(self):
-        # job deprecated check and remove
-        for rsu_idx, rsu in enumerate(self.rsus):
-            for hconn in rsu.handling_jobs:
-                if hconn is not None:
-                    hconn.veh.job
+    def _update_rsus(self):
+        # for rsu in self.rsus:
+        #     rsu.job_clean()
+        ...
 
     def _update_vehicles(self):
         current_vehicle_ids = set(self.sumo.vehicle.getIDList())
@@ -571,7 +575,9 @@ class Env(ParallelEnv):
         # find new veh in map
         new_vehicle_ids = current_vehicle_ids - previous_vehicle_ids
         for vehicle_id in new_vehicle_ids:
-            self.vehicles.append(Vehicle(vehicle_id, self.sumo))
+            self.vehicles.append(
+                Vehicle(vehicle_id, self.sumo, self.time_step // self.caching_step)
+            )
 
         # find leaving veh
         removed_vehicle_ids = previous_vehicle_ids - current_vehicle_ids
@@ -587,6 +593,8 @@ class Env(ParallelEnv):
         # update every veh's position and direction
         for vehicle in self.vehicles:
             vehicle.update_pos_direction()
+            # dev tag: update content?
+            vehicle.update_job_type(self.cache.get_content(self.time_step // self.time))
 
         # vehs need pending job
         self.pending_job_vehicles = [veh for veh in self.vehicles if not veh.job.done()]
@@ -751,6 +759,10 @@ class Env(ParallelEnv):
         pass
 
     def _calculate_rewards(self):
+        rewards = {}
+        for idx, a in enumerate(self.agents):
+            rsu = self.rsus[idx]
+            
         pass
 
     def _update_observations(self):

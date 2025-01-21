@@ -156,8 +156,13 @@ class Rsu:
         self.bw_ratio = bw_ratio
         self.bw_alloc = np.copy(abw_list)
         ...
-
+    
     def handling_job(self, jbh_list: list):
+        # clean deprecated jobs
+        for idx, hconn in enumerate(self.handling_jobs):
+            if hconn.connected == False:
+                self.handling_jobs.remove(idx)
+        
         # handle
         for idx, hconn in enumerate(self.handling_job_queue):
             # handle if 1
@@ -166,7 +171,7 @@ class Rsu:
                 # if append, need remove logic
                 if hconn not in self.handling_jobs:
                     hconn.veh.job.processing_rsu_id = self.id
-                    self.handling_jobs.append(hconn)
+                    self.handling_jobs.insert(hconn, idx)
             # else:
             #     hconn.disconnect()
         ...
@@ -231,7 +236,13 @@ class Job:
 
 class Vehicle:
     def __init__(
-        self, vehicle_id, sumo, init_all=True, seed=config.SEED, max_connections=4
+        self,
+        vehicle_id,
+        sumo,
+        job_type=None,
+        init_all=True,
+        seed=config.SEED,
+        max_connections=4,
     ):
         self.vehicle_id = vehicle_id
         self.height = config.VEHICLE_ANTENNA_HEIGHT
@@ -244,8 +255,8 @@ class Vehicle:
 
         job_size = random.randint(8, config.MAX_JOB_SIZE)
 
-        # Need for popularity modeling
-        job_type = random.randint(0, config.NUM_CONTENT)
+        # done -> Need for popularity modeling
+        job_type = job_type
 
         # single job, id is veh id
         self.job = Job(vehicle_id, job_size, job_type)
@@ -256,6 +267,9 @@ class Vehicle:
 
         # connected rsus, may not needed
         self.connections = OrderedQueueList(max_connections)
+
+    def update_job_type(self, job_type):
+        self.job_type = job_type
 
     def update_pos_direction(self):
         self.position = Point(self.sumo.vehicle.getPosition(self.vehicle_id))
