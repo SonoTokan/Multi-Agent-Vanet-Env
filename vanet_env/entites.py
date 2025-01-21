@@ -163,7 +163,7 @@ class Rsu:
             # handle if 1
             if jbh_list[idx]:
                 # dev tag: append or direct change?
-                # if append, need remove logical
+                # if append, need remove logic
                 if hconn not in self.handling_jobs:
                     hconn.veh.job.processing_rsu_id = self.id
                     self.handling_jobs.append(hconn)

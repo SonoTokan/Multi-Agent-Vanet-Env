@@ -2,7 +2,12 @@ import functools
 import random
 import sys
 
+sys.path.append("./")
+import pandas as pd
 from shapely import Point
+from sklearn.preprocessing import MinMaxScaler
+
+from vanet_env import data_preprocess
 
 sys.path.append("./")
 
@@ -14,13 +19,14 @@ import matplotlib.image as mpimg
 import matplotlib.transforms as transforms
 import numpy as np
 from scipy.spatial import KDTree
+from scipy.stats import poisson
 
 # gym
 import gymnasium as gym
 from gymnasium import spaces
 
 # custom
-from vanet_env import config, network
+from vanet_env import config, network, caching
 from vanet_env.utils import (
     RSU_MARKER,
     VEHICLE_MARKER,
@@ -66,7 +72,7 @@ class Env(ParallelEnv):
         self,
         render_mode="human",
         multi_core=8,
-        caching_step=100,
+        caching_fps=10,  # time split to 10 pieces
         fps=10,
         max_step=36000,  # need focus on fps
     ):
@@ -79,7 +85,8 @@ class Env(ParallelEnv):
         self.render_mode = render_mode
         self.multi_core = multi_core
         self.max_step = max_step
-        self.caching_step = caching_step
+        self.caching_fps = caching_fps
+        self.caching_step = max_step // caching_fps
 
         random.seed(self.seed)
 
@@ -94,6 +101,7 @@ class Env(ParallelEnv):
         self.max_weight = 100
         # fps means frame per second(frame per sumo timestep)
         self.fps = fps
+        self.caching_step = caching_fps
 
         # init rsus
         self.rsus = [
@@ -132,6 +140,15 @@ class Env(ParallelEnv):
         agents = ["rsu_" + str(i) for i in range(self.num_rsus)]
         self.possible_agents = agents[:]
         self.time_step = 0
+
+        self._content_init()
+
+    def _content_init(self):
+        self.cache = caching.Caching(self.caching_fps, self.max_content, self.seed)
+        self.content_list, self.aggregated_df_list, self.aggregated_df = (
+            self.cache.get_content_list()
+        )
+        self.cache.get_content(self.time_step // self.caching_step)
 
     def _sumo_init(self):
         # SUMO detector
@@ -509,6 +526,9 @@ class Env(ParallelEnv):
         # take action
         self._take_actions(actions)
 
+        # update rsu infos, remove deprecated job, process jobs
+        self._update_rsus_jobs()
+
         # caculate rewards
         # dev tag: calculate per timestep? or per fps?
         rewards = self._calculate_rewards()
@@ -520,9 +540,6 @@ class Env(ParallelEnv):
             self._update_vehicles()
             # update connections, very important
             self._update_connections_queue()
-
-        # update rsu infos, remove deprecated job, process jobs
-        self._update_rsus_jobs()
 
         # update observation space
         observations = self._update_observations()
@@ -737,6 +754,9 @@ class Env(ParallelEnv):
         pass
 
     def _update_observations(self):
+        for idx, a in enumerate(self.agents):
+            action_mask = self._single_action_mask(idx)
+
         pass
 
     def _manage_resources(self):
@@ -757,7 +777,7 @@ class Env(ParallelEnv):
     # peformance issue
     def _update_connections_queue(self, kdtree=True):
         """
-        connection logical
+        connection logic
         """
         # clear connections
         self.connections_queue = []
@@ -827,7 +847,7 @@ class Env(ParallelEnv):
                         rsu.connections_queue.append(conn)
 
                     # update veh conn queue, only one here
-                    # need update to new logical, i.e. conn replace rsu?
+                    # need update to new logic, i.e. conn replace rsu?
                     veh_matching_connection = [c for c in veh.connections if c == conn]
                     # if veh--rsu exist, update veh info else append
                     if veh_matching_connection:
@@ -838,7 +858,7 @@ class Env(ParallelEnv):
 
                     self.connections_queue.append(conn)
 
-                # conn remove logical #1
+                # conn remove logic #1
                 # check if veh out
 
                 # for idx, rsu in enumerate(self.rsus):
@@ -854,7 +874,7 @@ class Env(ParallelEnv):
                 #             if c.veh.vehicle_id != veh.vehicle_id
                 #         ]
 
-            # rsu conn remove logical #2 i.e. connection loss
+            # rsu conn remove logic #2 i.e. connection loss
             for rsu in self.rsus:
                 for idx, c in enumerate(rsu.connections_queue):
                     if c is None:
@@ -864,7 +884,7 @@ class Env(ParallelEnv):
                         rsu.connections_queue[idx].disconnect()
                         rsu.connections_queue.remove(idx)
 
-            # job disconnected logical
+            # job disconnected logic
 
             # check if veh out
             # issue
@@ -937,22 +957,24 @@ class Env(ParallelEnv):
             )
 
     def render(self, mode=None):
-        mode = self.render_mode if mode is None else mode
-        # human
-        if mode is not None:
-            # get veh ID
+        # only render after sim
+        if self.time_step % self.fps == 0:
+            mode = self.render_mode if mode is None else mode
+            # human
+            if mode is not None:
+                # get veh ID
 
-            # clear all dynamic rendered polygon
-            # draw QoE
-            for polygon_id in self.sumo.polygon.getIDList():
-                if polygon_id.startswith("dynamic_"):
-                    self.sumo.polygon.remove(polygon_id)
+                # clear all dynamic rendered polygon
+                # draw QoE
+                for polygon_id in self.sumo.polygon.getIDList():
+                    if polygon_id.startswith("dynamic_"):
+                        self.sumo.polygon.remove(polygon_id)
 
-            self._render_connections()
+                self._render_connections()
 
-            return
-        else:
-            return
+                return
+
+        return
 
     def close(self):
         self.sumo.close()

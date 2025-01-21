@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib as mpl
 from svgpathtools import svg2paths
 from svgpath2mpl import parse_path
+import pandas as pd
 
 import os
 
@@ -197,6 +198,23 @@ def interpolate_color(min_val, max_val, value):
     return (r, g, b)
 
 
+def RtoCsv():
+    import pyreadr
+    import pandas as pd
+    
+    file = os.path.join(os.path.dirname(__file__), "data", "Timik", "visits.RData")
+
+    # 读取 .RData 文件
+    result = pyreadr.read_r(file)
+
+    # 假设数据保存在名为 'x' 的变量中
+    df = result["x"]
+
+    # 保存为 CSV 文件
+    df.to_csv("timik.csv", index=False)
+
+    print("数据已成功保存为 timik.csv 文件。")
+
 # bug detected do not use
 def is_empty(list_in):
     return all(conn is None for conn in list_in) or list_in
@@ -205,5 +223,4 @@ def is_empty(list_in):
 def test():
     if [None]:
         print(is_empty([]), is_empty([None] * 2))
-
 

@@ -25,6 +25,7 @@ venv.bak/
 *.iml
 dev.env
 
-# 忽略日志和临时文件
+# 忽略日志和临时文件以及数据集
 *.restats
 temp/
+data/
