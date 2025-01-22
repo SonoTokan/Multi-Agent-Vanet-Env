@@ -8,7 +8,7 @@ import traci
 sys.path.append("./")
 
 import numpy as np
-from vanet_env import config
+from vanet_env import config, utils, network
 
 
 # rectange, unit (meters)
@@ -45,15 +45,20 @@ class OrderedQueueList:
                 return True
         return False
 
-    # not really insert
-    def insert(self, elem, index):
+    def replace(self, elem, index):
         self.olist[index] = elem
 
-    def remove(self, index):
-        if 0 <= index < self.max_size:
-            self.olist[index] = None
+    def remove(self, index=-1, elem=None):
+        if elem is not None:
+            self.remove(index=self.olist.index(elem))
         else:
-            assert ValueError
+            if 0 <= index < self.max_size:
+                self.olist[index] = None
+            else:
+                assert IndexError
+
+    def to_list_replace_none(self):
+        return [0 if x is None else x for x in self.olist]
 
     def size(self):
         return sum(1 for conn in self.olist if conn is not None)
@@ -136,6 +141,8 @@ class Rsu:
         self.computation_power_alloc = OrderedQueueList(max_cores)
         self.caching_contents = OrderedQueueList(caching_capacity)
 
+        self.energy_efficiency = 0
+
         self.cp_usage = 100
         self.bw_ratio = 100
         self.tx_ratio = 100
@@ -146,6 +153,7 @@ class Rsu:
     def allocate_computing_power(self, ac_list: list, cp_usage):
         self.cp_usage = cp_usage
         self.computation_power_alloc = np.copy(ac_list)
+        self.cp_norm = utils.normalize_array_np(self.computation_power_alloc)
         ...
 
     def cache_content(self, cc_list: list):
@@ -155,14 +163,43 @@ class Rsu:
     def allocate_bandwidth(self, abw_list: list, bw_ratio):
         self.bw_ratio = bw_ratio
         self.bw_alloc = np.copy(abw_list)
-        ...
-    
-    def handling_job(self, jbh_list: list):
+        self.bw_norm = utils.normalize_array_np(self.bw_alloc)
+
+        for idx, conn in enumerate(self.connections):
+            if conn is not None:
+                conn.data_rate = network.channel_capacity(
+                    self, conn.veh, self.bw * self.bw_norm[idx] * self.bw_ratio
+                )
+
+    # dev tag: index connect?
+    def connect(self, conn, index=-1):
+        conn.connect(self)
+
+        if index == -1:
+            self.connections.append(conn)
+        else:
+            self.connections.replace(conn, index)
+
+    def disconnect(self, conn):
+        conn.disconnect()
+        self.connections.remove(elem=conn)
+
+    def update_job_conn_list(self):
+        # clean deprecated connections
+        for idx, conn in enumerate(self.connections):
+            if conn is None:
+                continue
+            if conn not in self.connections_queue:
+                self.disconnect(conn)
+
         # clean deprecated jobs
         for idx, hconn in enumerate(self.handling_jobs):
+            if hconn is None:
+                continue
             if hconn.connected == False:
                 self.handling_jobs.remove(idx)
-        
+
+    def handling_job(self, jbh_list: list):
         # handle
         for idx, hconn in enumerate(self.handling_job_queue):
             # handle if 1
@@ -171,7 +208,9 @@ class Rsu:
                 # if append, need remove logic
                 if hconn not in self.handling_jobs:
                     hconn.veh.job.processing_rsu_id = self.id
-                    self.handling_jobs.insert(hconn, idx)
+                    self.handling_jobs.replace(hconn, idx)
+                    # dev tag: replace or append?
+                    hconn.rsu.connect(hconn)
             # else:
             #     hconn.disconnect()
         ...
@@ -220,16 +259,19 @@ class Rsu:
 class Job:
     def __init__(self, job_id, job_size, job_type):
         self.job_id = job_id
+        # deprecated
         self.job_size = job_size
         self.job_type = job_type
-        # processed size
+        # processed size # deprecated
         self.job_processed = 0
         # processing rsu
         self.processing_rsu_id = None
 
+    # deprecated
     def done(self):
         return self.job_size - self.job_processed <= 0
 
+    # deprecated
     def job_info(self):
         return max(self.job_size - self.job_processed, 0)
 
@@ -341,6 +383,7 @@ class Connection:
         self.veh = veh
         self.rsu = None if self.is_cloud else rsu
         self.data_rate = data_rate
+        self.qoe = 0
         self.connected = False
         # str
         self.id = str(rsu.id) + veh.vehicle_id

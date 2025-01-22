@@ -201,7 +201,7 @@ def interpolate_color(min_val, max_val, value):
 def RtoCsv():
     import pyreadr
     import pandas as pd
-    
+
     file = os.path.join(os.path.dirname(__file__), "data", "Timik", "visits.RData")
 
     # 读取 .RData 文件
@@ -215,6 +215,7 @@ def RtoCsv():
 
     print("数据已成功保存为 timik.csv 文件。")
 
+
 # bug detected do not use
 def is_empty(list_in):
     return all(conn is None for conn in list_in) or list_in
@@ -224,3 +225,11 @@ def test():
     if [None]:
         print(is_empty([]), is_empty([None] * 2))
 
+
+def normalize_array_np(arr):
+    arr = np.array(arr)
+    total = arr.sum()
+    if total == 0:
+        return arr
+        # raise ValueError("数组总和为0，无法归一化")
+    return arr / total

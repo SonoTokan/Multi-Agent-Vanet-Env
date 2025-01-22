@@ -1,3 +1,4 @@
+from collections import defaultdict, deque
 import sys
 
 from shapely import Point
@@ -291,10 +292,8 @@ def snr(rsu: Rsu, vh: Vehicle, path_loss_func="winner_b1"):
         d1, d2 = rsu.get_d1_d2(vh.get_position(), vh.get_angle())
         # dev tag: need minus gain
         # EIRP（Effective Isotropic Radiated Power)
-        path_loss = (
-            WinnerB1().path_loss_nlos(
-                d1, d2, rsu.frequency * 1e-3, rsu.height, vh.height
-            )
+        path_loss = WinnerB1().path_loss_nlos(
+            d1, d2, rsu.frequency * 1e-3, rsu.height, vh.height
         )
 
     else:
@@ -366,6 +365,70 @@ def dbm_to_watt(P_dbm):
 
 def bpsToMbps(bps):
     return bps / 1e6
+
+
+def network(coords, tree, k=3):
+    """
+    This function creates an adjacency list for a network of RSUs (Road Side Units).
+
+    Parameters:
+    coords (array-like): An array of coordinates for the RSUs.
+    tree (KDTree): A KDTree object built from the RSU coordinates.
+    k (int): The number of nearest neighbors to consider (default is 3).
+
+    Returns:
+    defaultdict: An adjacency list representing the network, where each key is an RSU index
+                 and the value is a list of indices of its nearest neighbors.
+
+    Example:
+    >>> coords = np.array([(0, 0), (1, 1), (2, 2)])
+    >>> tree = KDTree(coords)
+    >>> network(coords, tree, k=2)
+    defaultdict(<class 'list'>, {0: [1], 1: [0, 2], 2: [1]})
+    """
+    # Create adjacency list
+    network = defaultdict(list)
+    for i, coord in enumerate(coords):
+        # Query the nearest neighbor (excluding itself)
+        distances, indices = tree.query(
+            coord, k=k
+        )  # k=3 includes itself and its two nearest neighbors
+        for index in indices[1:]:  # Skip the first index as it is itself
+            network[i].append(index)
+
+    return network
+
+
+def find_hops(start_rsu, target_rsu, rsu_network):
+    """
+    This function calculates the number of hops (or steps) required to reach the target RSU from the start RSU
+    using a breadth-first search (BFS) algorithm.
+
+    Parameters:
+    start_rsu (int): The index of the starting RSU.
+    target_rsu (int): The index of the target RSU.
+    rsu_network (dict): A dictionary representing the RSU network, where keys are RSU indices and values are lists of neighboring RSU indices.
+
+    Returns:
+    int: The number of hops from the start RSU to the target RSU. Returns -1 if the target RSU is not reachable from the start RSU.
+    """
+
+    queue = deque([(start_rsu, 0)])  # (now rsu, hop)
+    visited = set()
+
+    while queue:
+        current_rsu, hops = queue.popleft()
+
+        if current_rsu == target_rsu:
+            return hops
+
+        if current_rsu not in visited:
+            visited.add(current_rsu)
+            for neighbor in rsu_network[current_rsu]:
+                if neighbor not in visited:
+                    queue.append((neighbor, hops + 1))
+
+    return -1
 
 
 # ofdm+mimo single channel

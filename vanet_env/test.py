@@ -118,16 +118,17 @@ def osmx_test():
 def sumo_env_test():
     fps = 10
     # render_mode="human", None
-    env = Env(None)
+    env = Env("human")
     obs, infos = env.reset()
 
     for i in range(100 * fps):
         env.step({})
 
-        if i % fps == 0:
-            env.render()
-
-
 if __name__ == "__main__":
-    cProfile.run("sumo_env_test()", sort="time")
+    # cProfile.run("sumo_env_test()", sort="time")
+    env = Env(None)
+    parallel_api_test(env, num_cycles=1_000_000)
+
+    env = Env(None)
+    parallel_api_test(env, num_cycles=1_000_000)
     pass
