@@ -38,7 +38,7 @@ NUM_RSU = len(RSU_POSITIONS)
 # Computation Power TFLOPs/s based on RTX 4060 Ti 22.1 tflops、RTX 4070 29.1 tflops、RTX 4080 48.7 tflops、RTX 4090 82.6 tflops
 RSU_COMPUTATION_POWER = 82.6
 # Caching Capacity
-RSU_CACHING_CAPACITY = 10
+RSU_CACHING_CAPACITY = 1
 # Transmitted power (( P_t )): 1 Watt (27 dBm)
 RSU_TRANSMITTED_POWER = 30
 # Noise power (( N )): ( 10^{-9} ) Watts (-90 dBm)
@@ -64,9 +64,9 @@ ANTENNA_GAIN = 3
 # Data rate threshold
 DATA_RATE_TR = 40
 # max computation cores
-NUM_CORES = 8
+NUM_CORES = 4
 # max downlink connections
-MAX_CONNECTIONS = 10
+MAX_CONNECTIONS = 5
 
 """
 Vehicle Config
@@ -77,7 +77,7 @@ VEHICLE_ANTENNA_HEIGHT = 1.5
 # max Job size
 MAX_JOB_SIZE = 256
 # content num
-NUM_CONTENT = 100
+NUM_CONTENT = 5
 
 """
 Cloud Config

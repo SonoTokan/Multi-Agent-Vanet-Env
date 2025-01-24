@@ -1,8 +1,13 @@
+import sys
+
+sys.path.append("./")
+
 import torch.nn as nn
 import torch
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 
-class CustomObsModel(TorchModelV2, nn.Module):
+
+class ObsModel(TorchModelV2, nn.Module):
     def __init__(self, obs_space, action_space, num_outputs, model_config, name):
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
 

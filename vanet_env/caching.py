@@ -8,10 +8,11 @@ sys.path.append("./")
 
 
 class Caching:
-    def __init__(self, caching_fps, num_content, seed):
+    def __init__(self, caching_fps, num_content, num_caching, seed):
         np.random.seed(seed)
         self.fps = caching_fps
         self.num_content = num_content
+        self.num_caching = num_caching
 
     def get_content(self, time):
         """
@@ -26,21 +27,21 @@ class Caching:
         # dev tag: may change to new model
         probabilities = np.array(popularity_scores_list)
 
-        # 将前十个元素的概率调整为总和75%
-        top_10_probabilities = probabilities[:10]
-        top_10_probabilities = np.array(top_10_probabilities)
-        top_10_probabilities /= top_10_probabilities.sum()  # 归一化
-        top_10_probabilities *= 0.90  # 调整为总和90%
+        # 将前max_caching个元素的概率调整为总和75%
+        top_probabilities = probabilities[: self.num_caching]
+        top_probabilities = np.array(top_probabilities)
+        top_probabilities /= top_probabilities.sum()  # 归一化
+        top_probabilities *= 0.80
 
-        # 将后90个元素的概率调整为总和25%
-        remaining_probabilities = probabilities[10:]
+        # 将后max_content - max_caching个元素的概率调整为总和25%
+        remaining_probabilities = probabilities[self.num_caching :]
         remaining_probabilities = np.array(remaining_probabilities)
         remaining_probabilities /= remaining_probabilities.sum()  # 归一化
-        remaining_probabilities *= 0.10  # 调整为总和10%
+        remaining_probabilities *= 0.20
 
         # 合并调整后的概率
         adjusted_probabilities = np.concatenate(
-            [top_10_probabilities, remaining_probabilities]
+            [top_probabilities, remaining_probabilities]
         )
 
         # Select an id based on the calculated probabilities

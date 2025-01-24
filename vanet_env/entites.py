@@ -61,13 +61,13 @@ class OrderedQueueList:
         return [0 if x is None else x for x in self.olist]
 
     def size(self):
-        return sum(1 for conn in self.olist if conn is not None)
+        return sum(1 for elem in self.olist if elem is not None)
 
     def is_empty(self):
         """
         may has bug, do not use
         """
-        return all(conn is None for conn in self.olist)
+        return all(elem is None for elem in self.olist)
 
     def avg(self):
         filtered_values = [v for v in self.olist if v is not None]
@@ -114,8 +114,8 @@ class Rsu:
         caching_capacity=config.RSU_CACHING_CAPACITY,
         num_atn=config.RSU_NUM_ANTENNA,
         tx_gain=config.ANTENNA_GAIN,
-        max_connections=10,
-        max_cores=8,
+        max_connections=config.MAX_CONNECTIONS,
+        max_cores=config.NUM_CORES,
     ):
         # args
         self.id = id
@@ -143,12 +143,37 @@ class Rsu:
 
         self.energy_efficiency = 0
 
-        self.cp_usage = 1.0
-        self.bw_ratio = 1.0
-        self.tx_ratio = 1.0
+        self.cp_usage = 0
+        self.bw_ratio = 5
+        self.tx_ratio = 100
+
+        self.ee = 0
+        self.max_ee = 3
+        self.utility = 0
+        
+        self.qoe_list = []
 
     def get_tx_power(self):
         return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
+
+    def frame_allocate_computing_power(self, cp_a: int, cp_usage: int):
+        self.cp_usage = cp_usage
+        self.computation_power_alloc.queue_jumping(cp_a)
+        self.cp_norm = utils.normalize_array_np(self.computation_power_alloc)
+
+    def frame_cache_content(self, caching_decision: int):
+        self.caching_contents.queue_jumping(caching_decision)
+
+    def frame_allocate_bandwidth(self, bw_a: int, bw_ratio=5):
+        self.bw_ratio = bw_ratio
+        self.bw_alloc.queue_jumping(bw_a)
+        self.bw_norm = utils.normalize_array_np(self.bw_alloc)
+
+        for idx, conn in enumerate(self.connections):
+            if conn is not None:
+                conn.data_rate = network.channel_capacity(
+                    self, conn.veh, self.bw * self.bw_norm[idx] * self.bw_ratio
+                )
 
     def allocate_computing_power(self, ac_list: list, cp_usage):
         self.cp_usage = cp_usage
@@ -173,13 +198,16 @@ class Rsu:
                 )
 
     # dev tag: index connect?
-    def connect(self, conn, index=-1):
+    def connect(self, conn, jumping=False, index=-1):
         conn.connect(self)
 
-        if index == -1:
-            self.connections.append(conn)
+        if jumping:
+            self.connections.queue_jumping(conn)
         else:
-            self.connections.replace(conn, index)
+            if index == -1:
+                self.connections.append(conn)
+            else:
+                self.connections.replace(conn, index)
 
     def disconnect(self, conn):
         conn.disconnect()
@@ -200,6 +228,16 @@ class Rsu:
             if hconn.connected == False:
                 self.handling_jobs.remove(idx)
 
+    def frame_handling_job(self, handling):
+        hconn = self.handling_job_queue[0]
+
+        if handling:
+            if hconn not in self.handling_jobs:
+                hconn.veh.job.processing_rsu_id = self.id
+                self.handling_jobs.queue_jumping(hconn)
+                # dev tag: replace or append?
+                hconn.rsu.connect(hconn)
+
     def handling_job(self, jbh_list: list):
         # handle
         for idx, hconn in enumerate(self.handling_job_queue):
@@ -216,9 +254,21 @@ class Rsu:
             #     hconn.disconnect()
         ...
 
+    def frame_queuing_job(self, conn, cloud=False):
+        if cloud:
+            # there can be modify to more adaptable
+            # specify rsu process this
+            conn.rsu = self
+            conn.is_cloud = True
+            conn.veh.job.processing_rsu_id = config.NUM_RSU
+
+        self.handling_job_queue.queue_jumping(conn)
+
     def queuing_job(self, conn, cloud=False):
         if cloud:
             # there can be modify to more adaptable
+            conn.rsu = self
+            conn.is_cloud = True
             conn.veh.job.processing_rsu_id = config.NUM_RSU
 
         # pending handle
@@ -266,7 +316,7 @@ class Job:
         # processed size # deprecated
         self.job_processed = 0
         # processing rsu
-        self.processing_rsu_id = None
+        self.processing_rsu_id = config.NUM_RSU + 1
 
     # deprecated
     def done(self):
@@ -282,6 +332,7 @@ class Vehicle:
         self,
         vehicle_id,
         sumo,
+        join_time,
         job_type=None,
         init_all=True,
         seed=config.SEED,
@@ -293,6 +344,7 @@ class Vehicle:
         self.angle = None
         self.sumo = sumo
         self.seed = seed
+        self.join_time = join_time
 
         random.seed(self.seed)
 
