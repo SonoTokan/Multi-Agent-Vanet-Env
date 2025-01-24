@@ -143,26 +143,27 @@ class Rsu:
 
         self.energy_efficiency = 0
 
-        self.cp_usage = 100
-        self.bw_ratio = 100
-        self.tx_ratio = 100
+        self.cp_usage = 1.0
+        self.bw_ratio = 1.0
+        self.tx_ratio = 1.0
 
     def get_tx_power(self):
         return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
 
     def allocate_computing_power(self, ac_list: list, cp_usage):
         self.cp_usage = cp_usage
-        self.computation_power_alloc = np.copy(ac_list)
+        self.computation_power_alloc = list.copy(ac_list)
         self.cp_norm = utils.normalize_array_np(self.computation_power_alloc)
         ...
 
-    def cache_content(self, cc_list: list):
-        self.caching_contents = np.copy(cc_list)
+    def cache_content(self, caching_decision: list):
+        content_index_list = np.where(caching_decision == 1)[0][:10].tolist()
+        self.caching_contents = list.copy(content_index_list)
         ...
 
     def allocate_bandwidth(self, abw_list: list, bw_ratio):
         self.bw_ratio = bw_ratio
-        self.bw_alloc = np.copy(abw_list)
+        self.bw_alloc = list.copy(abw_list)
         self.bw_norm = utils.normalize_array_np(self.bw_alloc)
 
         for idx, conn in enumerate(self.connections):

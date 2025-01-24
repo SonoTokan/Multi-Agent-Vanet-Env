@@ -16,7 +16,7 @@ def calculate_utility(rsu: Rsu, rsu_network):
     cahing_contents = rsu.caching_contents
 
     # computationally power alloc
-    cp_max = rsu.computation_power * (rsu.cp_usage / 100)
+    cp_max = rsu.computation_power * rsu.cp_usage
     # bw alloc
     # bw = rsu.bw * rsu.bw_ratio
 

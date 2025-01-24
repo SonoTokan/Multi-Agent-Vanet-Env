@@ -462,7 +462,7 @@ class Env(ParallelEnv):
         # md_bw_space = spaces.MultiDiscrete([self.max_weight] * self.max_connections)
         # # caching_decision
         # md_cd_space = spaces.MultiDiscrete([self.max_content] * self.max_caching)
-        
+
         # combined
         md_combined_space = spaces.MultiDiscrete(
             [self.num_rsus + 2]
@@ -474,12 +474,52 @@ class Env(ParallelEnv):
             + [self.max_content] * self.max_caching  # caching policy
         )
 
+        dict_combined_action_space = spaces.Dict(
+            {
+                # job connect and to rsu.id or cloud, 0 means self, num_rsu + 1 means not connect
+                "connection": spaces.MultiDiscrete(
+                    [self.num_rsus + 2] * self.max_connections
+                ),
+                "handling_jobs": spaces.MultiBinary(
+                    self.num_cores
+                ),  # handling arrival job? 0 for not, 1 for yes
+                "computing_power_alloc": spaces.Box(
+                    low=0.0, high=1.0, shape=(self.num_cores,)
+                ),  # computing power alloc
+                "bw_alloc": spaces.Box(
+                    low=0, high=1, shape=(self.num_cores,)
+                ),  # bw alloc
+                "cp_usage": spaces.Box(
+                    low=0, high=1, shape=(1,)
+                ),  # computing power usage  %
+                "caching": spaces.MultiBinary(self.max_content),
+            }
+        )
+
+        # only this space tested
+        # mixed: for every single agent, global aggregated but local not
+        # every rsu's avg bw, cp, job, conn state and veh pos (x, y) in range
+        self.mixed_dict_observation_space = spaces.Dict(
+            {
+                "cpu_usage_per_rsu": spaces.Box(
+                    low=0.0, high=1.0, shape=(self.num_rsus,)
+                ),
+                "avg_jobs_qoe_per_rsu": spaces.Box(
+                    low=0.0, high=1.0, shape=(self.num_rsus,)
+                ),
+                "self_jobs_qoe": spaces.Box(low=0.0, high=1.0, shape=(self.num_cores,)),
+                "self_arrival_jobs": spaces.MultiBinary(self.num_cores),
+                "self_handling_jobs": spaces.MultiBinary(self.num_cores),
+                "self_connection_queue": spaces.MultiBinary(self.max_connections),
+                "self_connected": spaces.MultiBinary(self.max_connections),
+            }
+        )
+
         self.md_single_action_space = md_combined_space
-        
-        # 
+        self.dict_combined_space = dict_combined_action_space
 
         print(
-            f"action sample{self.md_single_action_space.sample()}, obs sample{self.mixed_md_observation_space.sample()}"
+            f"action sample{self.dict_combined_space.sample()}, obs sample{self.mixed_dict_observation_space.sample()}"
         )
 
     def reset(self, seed=config.SEED, options=None):
@@ -504,7 +544,7 @@ class Env(ParallelEnv):
 
         self._update_connections_queue()
 
-        self.agents = np.copy(self.possible_agents)
+        self.agents = list.copy(self.possible_agents)
         self.timestep = 0
         # every rsu's avg bw, cp, job, conn state and veh, job info in this rsu's range
         # self.mixed_md_observation_space = spaces.MultiDiscrete(
@@ -512,19 +552,28 @@ class Env(ParallelEnv):
         #     + [self.max_weight] * self.max_connections * 3
         # )
 
-        observation = np.zeros(
-            self.mixed_md_observation_space.shape, dtype=int
-        ).tolist()
+        observation = {
+            "cpu_usage_per_rsu": np.zeros(shape=(self.num_rsus,), dtype=np.float32),
+            "avg_jobs_qoe_per_rsu": np.zeros(shape=(self.num_rsus,), dtype=np.float32),
+            "self_jobs_qoe": np.zeros(shape=(self.num_cores,), dtype=np.float32),
+            "self_arrival_jobs": np.zeros(
+                shape=(self.num_cores,), dtype=np.int64
+            ),  # MultiDiscrete 默认返回 int64
+            "self_handling_jobs": np.zeros(shape=(self.num_cores,), dtype=np.int64),
+            "self_connection_queue": np.zeros(
+                shape=(self.max_connections,), dtype=np.int64
+            ),
+            "self_connected": np.zeros(shape=(self.max_connections,), dtype=np.int64),
+        }
 
         # do not take any action except caching at start
         observations = {
             agent: {
                 "observation": observation,
-                "action_mask": self._single_action_mask(idx, next_time_step=0),
+                # "action_mask": self._single_dict_action_mask(idx, next_time_step=0),
             }
             for idx, agent in enumerate(self.agents)
         }
-
         # parallel_to_aec conversion may needed
         infos = {a: {} for a in self.agents}
 
@@ -533,7 +582,7 @@ class Env(ParallelEnv):
     def step(self, actions):
 
         # take action
-        self._take_actions(actions)
+        self._take_dict_actions(actions)
 
         # caculate rewards
         # dev tag: calculate per timestep? or per fps?
@@ -550,15 +599,17 @@ class Env(ParallelEnv):
             self._update_rsus()
 
         # update observation space
-        observations = self._update_observations()
+        observations = self._update_dict_observations()
 
         # time up or sumo done
 
         # self.sumo.simulation.getMinExpectedNumber() <= 0
-        if self.timestep >= self.max_step or ...:
+        if self.timestep >= self.max_step:
             terminations = {a: True for a in self.agents}
+        else:
+            terminations = {a: False for a in self.agents}
 
-        truncations = {a: True for a in self.agents}
+        truncations = {a: False for a in self.agents}
         infos = {a: {} for a in self.agents}
 
         self.timestep += 1
@@ -609,6 +660,64 @@ class Env(ParallelEnv):
         # vehs need pending job
         self.pending_job_vehicles = [veh for veh in self.vehicles if not veh.job.done()]
 
+    def _single_dict_action_mask(self, rsu_idx, next_time_step):
+        """
+        dict_combined_action_space = spaces.Dict(
+            {
+                # job connect and to rsu.id or cloud, 0 means self, num_rsu + 1 means not connect
+                "connection": spaces.Box(low=-1, high=1, shape=(self.num_rsus,)),
+                "handling_jobs": spaces.MultiBinary(
+                    self.num_cores
+                ),  # handling arrival job? 0 for not, 1 for yes
+                "computing_power_alloc": spaces.Box(
+                    low=0, high=1, shape=(self.num_cores,)
+                ),  # computing power alloc
+                "bw_alloc": spaces.Box(
+                    low=0, high=1, shape=(self.num_cores,)
+                ),  # bw alloc
+                "cp_usage": spaces.Box(
+                    low=0, high=1, shape=(1,)
+                ),  # computing power usage  %
+                "caching": spaces.Box(low=0, high=1, shape=(self.max_caching,)),
+            }
+        )
+        """
+        # per fps need connection policy
+        if next_time_step % self.fps == 0:
+            connection_action_mask = [
+                0 if c is None else 1 for c in self.rsus[rsu_idx].connections_queue
+            ]
+        else:
+            connection_action_mask = [0] * self.max_connections
+
+        # dev tag: Maybe split the frame gap, e.g. sumo's timestep is 1s, our own time step is set to 1/10 i.e. 0.1s means 10fps
+        # every frame beginning
+        if next_time_step % self.fps == 1:
+            job_handle_action_mask = [1] * self.num_cores
+        else:
+            job_handle_action_mask = [0] * self.num_cores
+
+        # only queued job need
+        resource_manager_action_mask = [
+            0 if hconn is None else 1 for hconn in self.rsus[rsu_idx].handling_jobs
+        ]
+
+        caching_action_mask = [0] * self.max_caching
+
+        # dev tag: would caching_step eq fps?
+        if next_time_step % self.caching_step == 0:
+            caching_action_mask = [1] * self.max_caching
+
+        # 1 * connction + 2 * resourceman + caching
+        return (
+            connection_action_mask
+            + job_handle_action_mask
+            + resource_manager_action_mask * 2
+            + caching_action_mask
+            + [1]
+        )
+        ...
+
     def _single_action_mask(self, rsu_idx, next_time_step):
         """
         space:
@@ -657,6 +766,116 @@ class Env(ParallelEnv):
             + caching_action_mask
             + [1]
         )
+
+    def _take_dict_actions(self, actions):
+        """
+            dict_combined_action_space = spaces.Dict(
+            {
+                # job connect and to rsu.id or cloud, 0 means self, num_rsu + 1 means not connect
+                "connection": spaces.MultiDiscrete(
+                    [self.num_rsus + 2] * self.max_connections
+                ),
+                "handling_jobs": spaces.MultiBinary(
+                    self.num_cores
+                ),  # handling arrival job? 0 for not, 1 for yes
+                "computing_power_alloc": spaces.Box(
+                    low=0.0, high=1.0, shape=(self.num_cores,)
+                ),  # computing power alloc
+                "bw_alloc": spaces.Box(
+                    low=0, high=1, shape=(self.num_cores,)
+                ),  # bw alloc
+                "cp_usage": spaces.Box(
+                    low=0, high=1, shape=(1,)
+                ),  # computing power usage  %
+                "caching": spaces.Box(low=0.0, high=1.0, shape=(self.max_caching,)),
+            }
+        )
+        """
+        # first, connections/job handling, after first time step(first sim), take actions
+        if self.timestep % self.fps == 0:
+            for idx, action in enumerate(list(actions.values())):
+                rsu = self.rsus[idx]
+                # decode action
+                connections_handling = action["connection"]
+
+                # excute job_handling
+                for conn_idx, jh_action in enumerate(connections_handling):
+                    conn = rsu.connections_queue[conn_idx]
+                    if conn is None:
+                        continue
+
+                    if jh_action == self.num_rsus + 1:
+                        continue  # not handling or continue pre policy
+                    elif jh_action == self.num_rsus:
+                        # cloud handling
+                        # direct connect to cloud
+                        # conn.connect(rsu, is_cloud=True)
+                        rsu.queuing_job(conn, cloud=True)
+                        ...
+                    else:
+                        # conn.connect(rsu)
+                        self.rsus[jh_action].queuing_job(conn)
+                    # # dev tag: if 0 means self then
+                    # elif jh_action == 0:
+                    #     # self handling
+                    #     conn.connect(rsu)
+                    #     rsu.queuing_job(conn)
+                    #     ...
+                    # else:
+                    #     conn.connect(rsu)
+                    #
+                    #     # if jh_action ≤ idx, ids-1, for exclude idx
+                    #     self.rsus[
+                    #         (
+                    #             self.rsu_ids[jh_action] - 1
+                    #             if jh_action <= idx
+                    #             else self.rsu_ids[jh_action]
+                    #         )
+                    #     ].queuing_job(conn)
+        else:
+            # seconde, resources handling
+            for idx, action in enumerate(list(actions.values())):
+                rsu = self.rsus[idx]
+                # Take job at the beginning of each frame step. dev tag: or every frame step?
+                if self.timestep % self.fps == 1:
+                    arrival_job_handling_action = action["handling_jobs"]
+                    # arrival job handling
+                    rsu.handling_job(arrival_job_handling_action)
+
+                computing_power_allocation = action["computing_power_alloc"]
+                bandwidth_allocation = action["bw_alloc"]
+
+                cp_usage = action["cp_usage"]
+                # bw_ratio = action[
+                #     self.num_cores * 3
+                #     + self.max_caching
+                #     + 1 : self.max_connections
+                #     + self.num_cores * 3
+                #     + self.max_caching
+                #     + 2
+                # ]
+
+                # allocate computing power
+                total_computing_power = sum(computing_power_allocation)
+                if total_computing_power > 0:
+                    normalized_computing_power = [
+                        cp / total_computing_power for cp in computing_power_allocation
+                    ]
+                    rsu.allocate_computing_power(normalized_computing_power, cp_usage)
+
+                # allocate bw
+                total_bandwidth = sum(bandwidth_allocation)
+                if total_bandwidth > 0:
+                    normalized_bandwidth = [
+                        bw / total_bandwidth for bw in bandwidth_allocation
+                    ]
+                    rsu.allocate_bandwidth(normalized_bandwidth, 1.0)
+
+        # excuete caching policy
+        if self.timestep % self.caching_step == 0:
+            caching_decision = action["caching"]
+            rsu.cache_content(caching_decision)
+        ...
 
     def _take_actions(self, actions):
         print(actions["rsu_0"])
@@ -747,7 +966,7 @@ class Env(ParallelEnv):
                     normalized_bandwidth = [
                         bw / total_bandwidth for bw in bandwidth_allocation
                     ]
-                    rsu.allocate_bandwidth(normalized_bandwidth, 100)
+                    rsu.allocate_bandwidth(normalized_bandwidth, 1.0)
 
         # excuete caching policy
         if self.timestep % self.caching_step == 0:
@@ -760,9 +979,89 @@ class Env(ParallelEnv):
         for idx, a in enumerate(self.agents):
             rsu = self.rsus[idx]
             u = utility.calculate_utility(rsu, self.rsu_network)
-            rewards[a] = u
+            rewards[a] = float(u)
 
         return rewards
+
+    def _update_dict_observations(self):
+        """
+        only this space tested
+        mixed: for every single agent, global aggregated but local not
+        every rsu's avg bw, cp, job, conn state and veh pos (x, y) in range
+        self.mixed_dict_observation_space = spaces.Dict(
+            {
+                "cpu_usage_per_rsu": spaces.Box(
+                    low=0.0, high=1.0, shape=(self.num_rsus,)
+                ),
+                "avg_jobs_qoe_per_rsu": spaces.Box(
+                    low=0.0, high=1.0, shape=(self.num_rsus,)
+                ),
+                "self_jobs_qoe": spaces.Box(low=0.0, high=1.0, shape=(self.num_cores,)),
+                "self_arrival_jobs": spaces.MultiDiscrete([2] * self.num_cores),
+                "self_handling_jobs": spaces.MultiDiscrete([2] * self.num_cores),
+                "self_connection_queue": spaces.MultiDiscrete([2] * self.connections),
+                "self_connected": spaces.MultiDiscrete([2] * self.connections),
+            }
+        )
+        """
+        observations = {}
+
+        usage_list = []
+        qoe_list = []
+        for rsu in self.rsus:
+            usage_list.append(rsu.cp_usage)
+            qoe = 0
+            qoe_count = 0
+
+            for hconn in rsu.handling_jobs:
+                if hconn is not None:
+                    qoe += int(hconn.qoe)
+                    qoe_count += 1
+
+            avg_qoe = 0.0 if qoe_count == 0 else qoe / qoe_count
+            qoe_list.append(avg_qoe)
+
+        for idx, a in enumerate(self.agents):
+            rsu = self.rsus[idx]
+            self_qoe_list = []
+
+            for hconn in rsu.handling_jobs:
+                if hconn is None:
+                    self_qoe_list.append(0.0)
+                else:
+                    self_qoe_list.append(hconn.qoe)
+
+            """
+            + [2] * self.num_cores  # self job arrival 0 means none job arrival
+            + [2] * self.num_cores  # self job handling 0 means not handling
+            + [2] * self.max_connections  # self connection queue status 0 means none
+            + [2] * self.max_connections  # self connected status 0 means none
+            """
+            arrival = [1 if x is not None else 0 for x in rsu.handling_job_queue]
+            handling = [1 if x is not None else 0 for x in rsu.handling_jobs]
+
+            connections_queue = [
+                1 if x is not None else 0 for x in rsu.connections_queue
+            ]
+            connected = [1 if x is not None else 0 for x in rsu.connections]
+
+            obs = {
+                "cpu_usage_per_rsu": usage_list,
+                "avg_jobs_qoe_per_rsu": qoe_list,
+                "self_jobs_qoe": self_qoe_list,
+                "self_arrival_jobs": arrival,
+                "self_handling_jobs": handling,
+                "self_connection_queue": connections_queue,
+                "self_connected": connected,
+            }
+
+            action_mask = self._single_dict_action_mask(
+                idx, next_time_step=self.timestep + 1
+            )
+
+            observations[a] = {"observation": obs}
+
+        return observations
 
     def _update_observations(self):
         observations = {}
@@ -1076,8 +1375,8 @@ class Env(ParallelEnv):
 
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent):
-        return self.mixed_md_observation_space
+        return self.mixed_dict_observation_space
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
-        return self.md_single_action_space
+        return self.dict_combined_space
