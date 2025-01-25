@@ -25,6 +25,7 @@ from scipy.stats import poisson
 # gym
 import gymnasium as gym
 from gymnasium import spaces
+from gym import spaces as gym_spaces
 
 # custom
 from vanet_env import config, network, caching, utility
@@ -34,6 +35,8 @@ from vanet_env.utils import (
     interpolate_color,
     sumo_detector,
     is_empty,
+    discrete_to_multi_discrete,
+    multi_discrete_space_to_discrete_space,
 )
 from vanet_env.entites import Connection, Rsu, CustomVehicle, Vehicle
 
@@ -92,7 +95,7 @@ class Env(ParallelEnv):
 
         random.seed(self.seed)
 
-        # important
+        # important rsu info
         self.max_connections = config.MAX_CONNECTIONS
         self.num_cores = config.NUM_CORES
         self.max_content = config.NUM_CONTENT
@@ -116,6 +119,7 @@ class Env(ParallelEnv):
             for i in range(self.num_rsus)
         ]
         self.rsu_ids = [i for i in range(self.num_rsus)]
+        self._agent_ids = [f"rsu_{i}" for i in range(self.num_rsus)]
         self.avg_u_global = 0
         self.avg_u_local = 0
 
@@ -144,13 +148,15 @@ class Env(ParallelEnv):
         self.sumo = traci
 
         # pettingzoo init
-        self.agents = ["rsu_" + str(i) for i in range(self.num_rsus)]
-        self.possible_agents = self.agents[:]
+        list_agents = list(self._agent_ids)
+        self.agents = list.copy(list_agents)
+        self.possible_agents = list.copy(list_agents)
 
         self.timestep = 0
 
         self.content_loaded = False
         self._space_init()
+        self._sumo_init()
 
     def _content_init(self):
         self.cache = caching.Caching(
@@ -163,9 +169,10 @@ class Env(ParallelEnv):
 
     def _sumo_init(self):
         # SUMO detector
-        sumo_detector()
+        # sumo_detector()
+        print("sumo init")
 
-        cfg_file_path = os.path.join(
+        self.cfg_file_path = os.path.join(
             os.path.dirname(__file__), "assets", "seattle", "sumo", "osm.sumocfg"
         )
 
@@ -179,7 +186,7 @@ class Env(ParallelEnv):
         if self.render_mode is not None:
 
             self.sumo.start(
-                ["sumo-gui", "-c", cfg_file_path, "--step-length", "1", "--start"]
+                ["sumo-gui", "-c", self.cfg_file_path, "--step-length", "1", "--start"]
             )
             # paint rsu
             for rsu in self.rsus:
@@ -219,11 +226,12 @@ class Env(ParallelEnv):
 
             # start sumo no gui (for train)
             self.sumo = libsumo
-            libsumo.start(["sumo", "-c", cfg_file_path])
+            libsumo.start(["sumo", "-c", self.cfg_file_path])
             # traci.start([sumoBinary, "-c", cfg_file_path])
 
         net_boundary = self.sumo.simulation.getNetBoundary()
         self.map_size = net_boundary[1]
+        self.sumo_has_init = True
 
     def _space_init(self):
 
@@ -502,13 +510,24 @@ class Env(ParallelEnv):
         self.md_frame_combined_action_space = spaces.MultiDiscrete(
             [
                 self.num_rsus + 2
-            ]  # this job connect and to rsu.id or cloud, 0 means self, num_rsu + 1 means not connect
+            ]  # this job connect and to rsu.id or cloud, 0 means self, num_rsu + 1 means not connect，default num_rsu = 20
             + [2]  # handling arrival job? 0 for not, 1 for yes
-            + [self.max_weight]  # computing power alloc
-            + [self.max_weight]  # bw alloc
-            + [self.max_weight]  # cp usage
-            + [self.max_content]  # caching choose
+            + [self.max_weight]  # computing power alloc, default: 5
+            + [self.max_weight]  # bw alloc, default : 5
+            + [self.max_weight]  # cp usage, defalut : 5
+            + [self.max_content]  # caching choose, defalut: 5
         )
+
+        # self.md_frame_combined_action_space = gym_spaces.MultiDiscrete(
+        #     [
+        #         self.num_rsus + 2,
+        #         2,
+        #         self.max_weight,
+        #         self.max_weight,
+        #         self.max_weight,
+        #         self.max_content,
+        #     ]
+        # )
 
         dict_combined_action_space = spaces.Dict(
             {
@@ -549,15 +568,39 @@ class Env(ParallelEnv):
             }
         )
 
-        self.mixed_frame_md_observation_space = spaces.MultiDiscrete(
-            [self.max_weight]  # rsus: avg usage
-            + [self.num_cores]  # rsus: avg handling jobs count
-            + [self.qoe_weight]  # self: avg_job_qoe
-            + [self.num_cores]  # self: num of arrival_jobs
-            + [self.num_cores]  # self: num of handling_jobs
-            + [self.max_connections]  # self: num of queue_connections
-            + [self.max_connections]  # self: num of connected
+        self.local_frame_md_observation_space = spaces.MultiDiscrete(
+            [self.num_cores]  # self: num of arrival_jobs, default:4
+            + [self.num_cores]  # self: num of handling_jobs, default:4
+            + [self.max_connections]  # self: num of queue_connections, default:5
+            + [self.max_connections]  # self: num of connected, default:5
         )
+
+        self.global_frame_md_observation_space = spaces.MultiDiscrete(
+            [self.max_weight]  # rsus: avg usage, default:5
+            + [self.num_cores]  # rsus: avg handling jobs count, default:5
+        )
+
+        self.mixed_frame_md_observation_space = spaces.MultiDiscrete(
+            [self.max_weight]  # rsus: avg usage, default:5
+            + [self.num_cores]  # rsus: avg handling jobs count, default:5
+            + [self.qoe_weight]  # self: avg_job_qoe, default:10
+            + [self.num_cores]  # self: num of arrival_jobs, default:4
+            + [self.num_cores]  # self: num of handling_jobs, default:4
+            + [self.max_connections]  # self: num of queue_connections, default:5
+            + [self.max_connections]  # self: num of connected, default:5
+        )
+
+        # self.mixed_frame_md_observation_space = gym_spaces.MultiDiscrete(
+        #     [
+        #         self.max_weight,
+        #         self.num_cores,
+        #         self.qoe_weight,
+        #         self.num_cores,
+        #         self.num_cores,
+        #         self.max_connections,
+        #         self.max_connections,
+        #     ]
+        # )
 
         self.mixed_frame_dict_observation_space = spaces.Dict(
             {
@@ -583,7 +626,21 @@ class Env(ParallelEnv):
         )
 
         self.md_single_action_space = md_combined_space
+
         self.dict_combined_space = dict_combined_action_space
+
+        self.discrete_action_space = multi_discrete_space_to_discrete_space(
+            self.md_frame_combined_action_space
+        )
+
+        # for rlib
+
+        self.observation_spaces = {
+            a: self.mixed_frame_md_observation_space for a in self._agent_ids
+        }
+        self.action_spaces = {
+            a: self.md_frame_combined_action_space for a in self._agent_ids
+        }
 
         print(
             f"action sample{self.md_frame_combined_action_space.sample()}, obs sample{self.mixed_frame_md_observation_space.sample()}"
@@ -598,7 +655,17 @@ class Env(ParallelEnv):
         random.seed(seed)
         self.seed = seed
 
-        self._sumo_init()
+        if not self.sumo_has_init:
+            self._sumo_init()
+            self.sumo_has_init = True
+        # try:
+        #     self.sumo.simulation.load(self.cfg_file_path)
+        #     # self.sumo.simulation.start()
+        # except Exception as e:
+        #     print(f"SUMO加载失败: {str(e)}")
+        #     self.close()
+        #     raise
+
         # self._space_init()
 
         self.vehicle_ids = self.sumo.vehicle.getIDList()
@@ -624,28 +691,16 @@ class Env(ParallelEnv):
         #     + [self.max_weight] * self.max_connections * 3
         # )
 
-        observation = {
-            "cpu_usage_per_rsu": np.zeros(shape=(self.num_rsus,), dtype=np.float32),
-            "avg_jobs_qoe_per_rsu": np.zeros(shape=(self.num_rsus,), dtype=np.float32),
-            "self_jobs_qoe": np.zeros(shape=(self.num_cores,), dtype=np.float32),
-            "self_arrival_jobs": np.zeros(
-                shape=(self.num_cores,), dtype=np.int64
-            ),  # MultiDiscrete 默认返回 int64
-            "self_handling_jobs": np.zeros(shape=(self.num_cores,), dtype=np.int64),
-            "self_connection_queue": np.zeros(
-                shape=(self.max_connections,), dtype=np.int64
-            ),
-            "self_connected": np.zeros(shape=(self.max_connections,), dtype=np.int64),
-        }
+        observations = self._update_frame_observations()
 
         # do not take any action except caching at start
-        observations = {
-            agent: {
-                "observation": observation,
-                # "action_mask": self._single_dict_action_mask(idx, next_time_step=0),
-            }
-            for idx, agent in enumerate(self.agents)
-        }
+        # observations = {
+        #     agent: {
+        #         "observation": observation,
+        #         "action_mask": self._single_dict_action_mask(idx, next_time_step=0),
+        #     }
+        #     for idx, agent in enumerate(self.agents)
+        # }
         # parallel_to_aec conversion may needed
         infos = {a: {} for a in self.agents}
 
@@ -671,12 +726,14 @@ class Env(ParallelEnv):
             self._update_rsus()
 
         # update observation space
-        observations = self._update_frame_observations()
+        observations = self._update_frame_observations(split=True)
         # time up or sumo done
 
         # self.sumo.simulation.getMinExpectedNumber() <= 0
         if self.timestep >= self.max_step:
             terminations = {a: True for a in self.agents}
+            self.sumo.close()
+            self.sumo_has_init = False
         else:
             terminations = {a: False for a in self.agents}
 
@@ -757,12 +814,14 @@ class Env(ParallelEnv):
 
         if 0 <= frame <= self.max_connections:
             m = []
-            for i in range(self.rsus):
+            for i in range(len(self.rsus)):
                 if i == 0:
                     rsu_temp = self.rsus[rsu_idx]
                 else:
-                    rsu_temp = self.rsu_ids[i] - 1 if i <= rsu_idx else self.rsu_ids[i]
-                    rsu_temp = self.rsus[id]
+                    rsu_temp_id = (
+                        self.rsu_ids[i] - 1 if i <= rsu_idx else self.rsu_ids[i]
+                    )
+                    rsu_temp = self.rsus[rsu_temp_id]
 
                 if (
                     rsu_temp.handling_job_queue.size()
@@ -774,7 +833,7 @@ class Env(ParallelEnv):
             m.append(1)  # cloud
             m.append(1)  # refuse
         else:
-            m = [0] * self.num_rsus + 2
+            m = [0] * (self.num_rsus + 2)
 
         rsu = self.rsus[rsu_idx]
         if 1 <= frame <= self.max_connections + 1:
@@ -808,7 +867,7 @@ class Env(ParallelEnv):
             cp_u = [0] * self.max_weight
 
         if self.timestep % self.caching_step == 0:
-            c = []
+            c = [1] * self.max_content
         else:
             c = [0] * self.max_content
 
@@ -962,15 +1021,20 @@ class Env(ParallelEnv):
         h2_conn = False
         m_conn = False
 
-        for idx, action in enumerate(list(actions.values())):
+        for agent_id, action in actions.items():
+            idx = self.agents.index(agent_id)
+            if type(action) != list:
+                assert NotImplementedError
+                # action = discrete_to_multi_discrete(self.action_space(idx), action)
             rsu = self.rsus[idx]
 
             if 0 <= frame <= self.max_connections:
                 # time: 0->max_connections handle connections (mig to where)
-                conn = rsu.connections_queue[idx]
+                conn = rsu.connections_queue.top_and_sink()
                 if conn is not None:
                     h_conn = True
                     a_conn = action[0]
+
                     if a_conn == self.num_rsus + 1:
                         continue  # not handling or continue pre policy
                     elif a_conn == self.num_rsus:
@@ -1257,7 +1321,7 @@ class Env(ParallelEnv):
 
         return rewards
 
-    def _update_frame_observations(self):
+    def _update_frame_observations(self, time_step=None, split=False):
         """
         self.mixed_frame_md_observation_space = spaces.MultiDiscrete(
             + [10]  # self: avg_job_qoe
@@ -1269,40 +1333,76 @@ class Env(ParallelEnv):
             + [self.num_cores]  # rsus: avg handling jobs count
         )
         """
-        observations = {}
-
-        usage_all = 0
-        count = 0
-
-        for rsu in self.rsus:
-            usage_all += rsu.cp_usage
-            count += 1
-
-        avg_usage = 0 if count == 0 else usage_all // count
-
-        for idx, a in enumerate(self.agents):
-            rsu = self.rsus[idx]
-            obs = []
-            obs.append(int(self.avg_u_local), avg_usage)
-
-            qoe_all = 0
+        if split:
+            time_step = time_step if time_step is not None else self.timestep
+            observations = {}
+            global_obs = []
+            usage_all = 0
             count = 0
-            for hconn in rsu.handling_jobs:
-                if hconn is not None:
-                    qoe_all += hconn.qoe
-                    count += 1
+            num_handling_job = 0
 
-            avg_qoe = 0 if count == 0 else qoe_all / count
-            arrival_jobs = rsu.handling_job_queue.size()
-            handling = count
-            num_conn_queue = rsu.connections_queue.size()
-            num_connected = rsu.connections.size()
+            for rsu in self.rsus:
+                usage_all += rsu.cp_usage
+                num_handling_job += rsu.handling_jobs.size()
+                count += 1
 
-            obs.append(avg_qoe, arrival_jobs, handling, num_conn_queue, num_connected)
-            act_mask = self._single_frame_discrete_action_mask(idx, self.timestep + 1)
-            observations[a] = {"observation": obs, "action_mask": act_mask}
+            avg_usage = 0 if count == 0 else usage_all // count
+            avg_handling = 0 if count == 0 else avg_handling // count
+            global_obs.append(avg_usage)
+            global_obs.append(avg_handling)
 
-        return observations
+            for idx, a in enumerate(self.agents):
+                rsu = self.rsus[idx]
+
+                arrival_jobs = rsu.handling_job_queue.size()
+                handling = rsu.handling_jobs.size()
+                num_conn_queue = rsu.connections_queue.size()
+                num_connected = rsu.connections.size()
+
+                local_obs = [arrival_jobs, handling, num_conn_queue, num_connected]
+                # act_mask = self._single_frame_discrete_action_mask(idx, time_step + 1)
+                observations[a] = {
+                    "local_obs": np.array(local_obs, dtype=np.int64),
+                    "global_obs": global_obs,
+                }
+
+        else:
+            # may issue
+            time_step = time_step if time_step is not None else self.timestep
+            observations = {}
+
+            usage_all = 0
+            count = 0
+
+            for rsu in self.rsus:
+                usage_all += rsu.cp_usage
+                count += 1
+
+            avg_usage = 0 if count == 0 else usage_all // count
+
+            for idx, a in enumerate(self.agents):
+                rsu = self.rsus[idx]
+                obs = []
+                obs += int(self.avg_u_local), avg_usage
+
+                qoe_all = 0
+                count = 0
+                for hconn in rsu.handling_jobs:
+                    if hconn is not None:
+                        qoe_all += hconn.qoe
+                        count += 1
+
+                avg_qoe = 0 if count == 0 else qoe_all / count
+                arrival_jobs = rsu.handling_job_queue.size()
+                handling = count
+                num_conn_queue = rsu.connections_queue.size()
+                num_connected = rsu.connections.size()
+
+                obs += [avg_qoe, arrival_jobs, handling, num_conn_queue, num_connected]
+                # act_mask = self._single_frame_discrete_action_mask(idx, time_step + 1)
+                observations[a] = np.array(obs, dtype=np.int64)
+
+            return observations
         pass
 
     def _update_dict_observations(self):
@@ -1693,6 +1793,7 @@ class Env(ParallelEnv):
 
     def close(self):
         self.sumo.close()
+        self.sumo_has_init = False
         return super().close()
 
     @functools.lru_cache(maxsize=None)
@@ -1701,4 +1802,7 @@ class Env(ParallelEnv):
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
-        return self.mixed_frame_dict_observation_space
+        return self.md_frame_combined_action_space
+
+    # def get_agent_ids(self):
+    #     return self._agent_ids

@@ -48,6 +48,11 @@ class OrderedQueueList:
     def replace(self, elem, index):
         self.olist[index] = elem
 
+    def top_and_sink(self):
+        top = self.olist[0]
+        self.olist = self.olist[1:] + [top]
+        return top
+
     def pop(self):
         top = self.olist[0]
         self.olist = self.olist[1:] + [None]
@@ -103,6 +108,20 @@ class OrderedQueueList:
         else:
             raise IndexError("Index out of range")
 
+    def __len__(self):
+        """返回队列的最大容量"""
+        return self.max_size
+
+    def __contains__(self, item):
+        """支持 in 操作符"""
+        if isinstance(item, np.ndarray):  # 如果 item 是 NumPy 数组
+            return any(np.array_equal(item, x) for x in self.olist if x is not None)
+        else:  # 如果 item 是普通值
+            return item in self.olist
+
+    def index(self, elem):
+        return self.olist.index(elem)
+
 
 class Rsu:
     def __init__(
@@ -152,6 +171,9 @@ class Rsu:
         self.cp_usage = 0
         self.bw_ratio = 5
         self.tx_ratio = 100
+
+        self.cp_norm = [0] * self.handling_jobs.max_size
+        self.bw_norm = [0] * self.handling_jobs.max_size
 
         self.ee = 0
         self.max_ee = 3
@@ -238,7 +260,7 @@ class Rsu:
                 self.handling_jobs.remove(idx)
 
     def frame_handling_job(self, handling):
-        hconn = self.handling_job_queue.pop(0)
+        hconn = self.handling_job_queue.pop()
 
         if handling:
             if hconn not in self.handling_jobs:

@@ -7,6 +7,7 @@ import matplotlib as mpl
 from svgpathtools import svg2paths
 from svgpath2mpl import parse_path
 import pandas as pd
+from gymnasium import spaces
 
 import os
 
@@ -227,9 +228,104 @@ def test():
 
 
 def normalize_array_np(arr):
-    arr = np.array(arr)
-    total = arr.sum()
+    """
+    标准化处理包含None的数组：
+    1. 非None值将被转换为 x * count / total，其中：
+       - count 是非None值的数量
+       - total 是非None值的总和
+    2. None值保持原位置不变
+    
+    参数：
+    arr (list): 包含数值和None的列表
+    
+    返回：
+    list: 处理后的列表，非None值标准化，None保持原位置
+    
+    异常：
+    ValueError: 当非None值的总和为0但存在非零元素时抛出
+    """
+    # 过滤出非None值
+    non_none = [x for x in arr if x is not None]
+    count = len(non_none)
+    
+    # 处理全None情况
+    if count == 0:
+        return arr.copy()
+    
+    total = sum(non_none)
+    
+    # 处理总和为0的情况
     if total == 0:
-        return arr
-        # raise ValueError("数组总和为0，无法归一化")
-    return arr / total
+        if all(x == 0 for x in non_none):
+            # 所有非None值均为0时返回0
+            return [0 if x is not None else None for x in arr]
+        else:
+            raise ValueError("非None值的总和为0但存在非零元素，无法标准化")
+    
+    # 计算标准化值
+    return [
+        x * count / total if x is not None else None
+        for x in arr
+    ]
+    
+# def normalize_array_np(arr: np.ndarray) -> np.ndarray:
+#     """将输入数组归一化为概率分布（总和=1）
+
+#     Args:
+#         arr: 输入数组，支持int/float类型
+
+#     Returns:
+#         np.ndarray: 归一化后的浮点数组
+
+#     Raises:
+#         ValueError: 当数组包含负数或无法归一化时
+#     """
+#     arr = np.asarray([a if a != None else 0 for a in arr], dtype=np.float64)  # 强制类型转换
+
+#     if np.any(arr < 0):
+#         raise ValueError("输入数组包含负值，无法归一化为概率分布")
+
+#     total = arr.sum()
+
+#     if total <= 0:
+#         if np.all(arr == 0):
+#             # 全零时返回均匀分布
+#             return np.full_like(arr, 1.0/arr.size, dtype=np.float64)
+#         else:
+#             raise ValueError(f"无效的数组总和: {total}，无法归一化")
+
+#     return arr / total
+
+
+def multi_discrete_space_to_discrete_space(md_space):
+    # 计算总的动作数
+    action_dims = md_space.nvec
+    total_actions = np.prod(action_dims)
+
+    # 创建一个 Discrete 动作空间
+    discrete_action_space = spaces.Discrete(total_actions)
+    return discrete_action_space
+
+
+# 将 Discrete 动作转换回 MultiDiscrete 动作
+def discrete_to_multi_discrete(md_space, discrete_action):
+    action_dims = md_space.nvec
+
+    discrete_action = 0
+
+    action = []
+    for i in reversed(range(len(action_dims))):
+        action.append(discrete_action % action_dims[i])
+        discrete_action = discrete_action // action_dims[i]
+    return list(reversed(action))
+
+
+# 将 MultiDiscrete 动作转换为 Discrete 动作
+def multi_discrete_to_discrete(md_space, action):
+    action_dims = md_space.nvec
+
+    discrete_action = 0
+    for i in range(len(action)):
+        discrete_action *= action_dims[i]
+        discrete_action += action[i]
+    return discrete_action
