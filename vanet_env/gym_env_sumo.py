@@ -116,6 +116,8 @@ class Env(ParallelEnv):
             for i in range(self.num_rsus)
         ]
         self.rsu_ids = [i for i in range(self.num_rsus)]
+        self.avg_u_global = 0
+        self.avg_u_local = 0
 
         # max data rate
         self.max_data_rate = network.max_rate(self.rsus[0])
@@ -690,7 +692,10 @@ class Env(ParallelEnv):
 
     def _update_rsus(self):
         for rsu in self.rsus:
-            rsu.update_job_conn_list()
+            rsu.update_conn_list()
+
+        for rsu in self.rsus:
+            rsu.update_job_handling_list()
         # may not necessary
         # for rsu in self.rsus:
         #     rsu.job_clean()
@@ -734,7 +739,7 @@ class Env(ParallelEnv):
         # vehs need pending job
         self.pending_job_vehicles = [veh for veh in self.vehicles if not veh.job.done()]
 
-    def _single_frame_action_mask(self, rsu_idx, next_time_step):
+    def _single_frame_discrete_action_mask(self, rsu_idx, next_time_step):
         """
         # frame job Schelling
         self.md_frame_combined_action_space = spaces.MultiDiscrete(
@@ -748,22 +753,67 @@ class Env(ParallelEnv):
             + [self.max_content]  # caching choose
         )
         """
-        next_time_step
-        m = []
-        for i in range(self.rsus):
-            if i == 0:
-                rsu = self.rsus[rsu_idx]
-            else:
-                id = self.rsu_ids[i] - 1 if i <= rsu_idx else self.rsu_ids[i]
-                rsu = self.rsus[id]
+        frame = next_time_step % self.fps
 
-            if rsu.handling_job_queue.size() == rsu.handling_job_queue.max_size:
-                m.append(0)
-            else:
-                m.append(1)
-        m.append(1)  # cloud
-        m.append(1)  # refuse
+        if 0 <= frame <= self.max_connections:
+            m = []
+            for i in range(self.rsus):
+                if i == 0:
+                    rsu_temp = self.rsus[rsu_idx]
+                else:
+                    rsu_temp = self.rsu_ids[i] - 1 if i <= rsu_idx else self.rsu_ids[i]
+                    rsu_temp = self.rsus[id]
 
+                if (
+                    rsu_temp.handling_job_queue.size()
+                    == rsu_temp.handling_job_queue.max_size
+                ):
+                    m.append(0)
+                else:
+                    m.append(1)
+            m.append(1)  # cloud
+            m.append(1)  # refuse
+        else:
+            m = [0] * self.num_rsus + 2
+
+        rsu = self.rsus[rsu_idx]
+        if 1 <= frame <= self.max_connections + 1:
+            h = []
+            conn = rsu.connections_queue[0]
+            if conn is not None:
+                h = [1] * 2
+            else:
+                h = [0] * 2
+        else:
+            h = [0] * 2
+
+        if 2 <= frame <= self.max_connections + 2:
+            # cp alloc
+            if rsu.handling_jobs[0] is not None:
+                ca = [1] * self.max_weight
+
+            else:
+                ca = [0] * self.max_weight
+
+            # bw alloc
+            if rsu.connections[0] is not None:
+                ba = [1] * self.max_weight
+            else:
+                ba = [0] * self.max_weight
+
+            cp_u = [1] * self.max_weight
+        else:
+            ca = [0] * self.max_weight
+            ba = [0] * self.max_weight
+            cp_u = [0] * self.max_weight
+
+        if self.timestep % self.caching_step == 0:
+            c = []
+        else:
+            c = [0] * self.max_content
+
+        act_mask = m + h + ca + ba + cp_u + c
+        return act_mask
         pass
 
     def _single_dict_action_mask(self, rsu_idx, next_time_step):
@@ -1186,19 +1236,24 @@ class Env(ParallelEnv):
 
     def _calculate_rewards(self):
         rewards = {}
+        avg_u_global, avg_u_local = utility.calculate_utility_all_optimized(
+            self.vehicles,
+            self.rsus,
+            self.rsu_network,
+            self.timestep,
+            self.fps,
+            self.max_weight,
+            self.qoe_weight,
+        )
+
+        self.avg_u_global = avg_u_global
+        self.avg_u_local = avg_u_local
+
         for idx, a in enumerate(self.agents):
             rsu = self.rsus[idx]
-            u_global, u_local = utility.calculate_utility_all_optimized(
-                self.vehicles,
-                self.rsus,
-                self.rsu_network,
-                self.timestep,
-                self.fps,
-                self.max_weight,
-                self.qoe_weight,
-            )
+            u_local = rsu.avg_u
             # dev tag: factor may need specify
-            rewards[a] = u_global * 0.7 + u_local * 0.3
+            rewards[a] = avg_u_global * 0.7 + u_local * 0.3
 
         return rewards
 
@@ -1217,21 +1272,18 @@ class Env(ParallelEnv):
         observations = {}
 
         usage_all = 0
-        num_jobs = 0
         count = 0
 
         for rsu in self.rsus:
             usage_all += rsu.cp_usage
-            num_jobs += rsu.handling_jobs.size()
             count += 1
 
-        avg_jobs = 0 if count == 0 else num_jobs / count
-        avg_usage = 0 if count == 0 else usage_all / count
+        avg_usage = 0 if count == 0 else usage_all // count
 
         for idx, a in enumerate(self.agents):
             rsu = self.rsus[idx]
             obs = []
-            obs.append(avg_jobs, avg_usage)
+            obs.append(int(self.avg_u_local), avg_usage)
 
             qoe_all = 0
             count = 0
@@ -1247,8 +1299,10 @@ class Env(ParallelEnv):
             num_connected = rsu.connections.size()
 
             obs.append(avg_qoe, arrival_jobs, handling, num_conn_queue, num_connected)
-            act_mask = self._single_frame_action_mask(idx, self.timestep + 1)
-            observations[a] = obs
+            act_mask = self._single_frame_discrete_action_mask(idx, self.timestep + 1)
+            observations[a] = {"observation": obs, "action_mask": act_mask}
+
+        return observations
         pass
 
     def _update_dict_observations(self):

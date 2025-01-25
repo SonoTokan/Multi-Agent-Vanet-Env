@@ -144,6 +144,7 @@ def calculate_utility_all_optimized(
                 qoe *= caching_penalty
 
             rsu.qoe_list.append(qoe)
+            
             # 能量效率计算
 
         ee = ee_base * (1 - rsu.cp_usage / weight)
@@ -153,6 +154,7 @@ def calculate_utility_all_optimized(
         if qoe_list:
             avg_u = sum(qoe_list) + len(qoe_list) * ee / len(qoe_list)
             individual_utilities.append(int(avg_u) if int_utility else avg_u)
+            rsu.avg_u = avg_u
 
     # ========== 最终结果计算 ==========
     avg_global = sum(global_qoe_list) / len(global_qoe_list) if global_qoe_list else 0

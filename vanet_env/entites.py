@@ -48,6 +48,11 @@ class OrderedQueueList:
     def replace(self, elem, index):
         self.olist[index] = elem
 
+    def pop(self):
+        top = self.olist[0]
+        self.olist = self.olist[1:] + [None]
+        return top
+
     def remove(self, index=-1, elem=None):
         if elem is not None:
             self.remove(index=self.olist.index(elem))
@@ -143,6 +148,7 @@ class Rsu:
 
         self.energy_efficiency = 0
 
+        # cp_usage max is weight
         self.cp_usage = 0
         self.bw_ratio = 5
         self.tx_ratio = 100
@@ -150,8 +156,9 @@ class Rsu:
         self.ee = 0
         self.max_ee = 3
         self.utility = 0
-        
+
         self.qoe_list = []
+        self.avg_u = 0
 
     def get_tx_power(self):
         return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
@@ -213,13 +220,15 @@ class Rsu:
         conn.disconnect()
         self.connections.remove(elem=conn)
 
-    def update_job_conn_list(self):
+    def update_conn_list(self):
         # clean deprecated connections
         for idx, conn in enumerate(self.connections):
             if conn is None:
                 continue
             if conn not in self.connections_queue:
                 self.disconnect(conn)
+
+    def update_job_handling_list(self):
 
         # clean deprecated jobs
         for idx, hconn in enumerate(self.handling_jobs):
@@ -229,7 +238,7 @@ class Rsu:
                 self.handling_jobs.remove(idx)
 
     def frame_handling_job(self, handling):
-        hconn = self.handling_job_queue[0]
+        hconn = self.handling_job_queue.pop(0)
 
         if handling:
             if hconn not in self.handling_jobs:
