@@ -1,10 +1,216 @@
+from collections import defaultdict
 import sys
+from typing import Dict, List
 
+import numpy as np
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 sys.path.append("./")
-from vanet_env.entites import Rsu, Vehicle
+from vanet_env.entites import Rsu, Vehicle, OrderedQueueList
 from vanet_env import network, config, utils
+
+
+def cal_qoe(
+    veh: Vehicle,
+    rsus,
+    max_qoe,
+    weight,
+    hop_penalty_rate,
+    process_rsu_id,
+    connect_rsu_id,
+    rsu_network,
+    proc_veh_qoe_dict=None,
+    rsu_qoe_dict=None,
+):
+    if proc_veh_qoe_dict is None:
+        proc_veh_qoe_dict = {}
+    if rsu_qoe_dict is None:
+        rsu_qoe_dict = defaultdict(list)
+
+    # 没有处理，connect_rsu_id应该必然有
+    if process_rsu_id is None or connect_rsu_id is None:
+        # 超过fps个时间步直接算qoe = 0，还是直接算0
+        veh.job.qoe = 0.0
+        # append
+        rsu_qoe_dict[connect_rsu_id] += [veh.job.qoe]
+
+        # if (time_step - veh.join_time) >= fps:
+        #     proc_qoe_dict[veh_ids] = 0.0
+        #     veh.job.qoe = 0.0
+
+    # 若有处理，云，本身，跳三种
+    elif process_rsu_id == len(rsus):
+        veh.job.qoe = max_qoe * 0.1
+        proc_veh_qoe_dict[veh.vehicle_id] = veh.job.qoe
+        # 这个qoe要算在connecet的rsu头上，虽然没有真的connect
+        rsu_qoe_dict[veh.connected_rsu_id] += [veh.job.qoe]
+
+    elif process_rsu_id == connect_rsu_id:
+        rsu = rsus[process_rsu_id]
+        index_in_proc_rsu = rsu.handling_jobs.index(veh)
+        # may已经断开连接？
+        # index_in_trans_rsu = rsu.connections.index(veh)
+
+        cp = (
+            rsu.computation_power
+            * rsu.cp_norm[index_in_proc_rsu]
+            * rsu.cp_usage
+            / weight
+        )
+
+        process_qoe = veh.data_rate / config.JOB_DR_REQUIRE
+        trans_qoe = cp / config.JOB_CP_REQUIRE
+
+        veh.job.qoe = min(process_qoe, trans_qoe)
+        # append
+        rsu_qoe_dict[process_rsu_id] += [veh.job.qoe]
+        proc_veh_qoe_dict[veh.vehicle_id] = veh.job.qoe
+    else:
+        proc_rsu = rsus[process_rsu_id]
+        tran_rsu = rsus[connect_rsu_id]
+        index_in_proc_rsu = proc_rsu.handling_jobs.index(veh)
+        # pre connected 不一定连接
+        # index_in_trans_rsu = tran_rsu.connections.index(veh)
+
+        cp = (
+            proc_rsu.computation_power
+            * proc_rsu.cp_norm[index_in_proc_rsu]
+            * proc_rsu.cp_usage
+            / weight
+        )
+
+        process_qoe = veh.data_rate / config.JOB_DR_REQUIRE
+        trans_qoe = cp / config.JOB_CP_REQUIRE
+
+        qoe = min(process_qoe, trans_qoe)
+
+        # 跨节点通信惩罚
+        hop = network.find_hops(process_rsu_id, connect_rsu_id, rsu_network=rsu_network)
+        qoe *= 1 - hop * hop_penalty_rate
+        qoe = max(qoe, 0)  # 防止负值
+
+        veh.job.qoe = qoe
+        # 共同承担qoe
+        rsu_qoe_dict[connect_rsu_id] += [veh.job.qoe]
+        rsu_qoe_dict[process_rsu_id] += [veh.job.qoe]
+        proc_veh_qoe_dict[veh.vehicle_id] = veh.job.qoe
+
+    return proc_veh_qoe_dict, rsu_qoe_dict
+
+
+# python 3.9 + can be dict[str, Vehicle], list[Rsu]
+def calculate_frame_utility(
+    vehs: Dict[str, Vehicle],
+    rsus: List[Rsu],
+    proc_veh_set: set[str],
+    rsu_network,
+    time_step,
+    fps,
+    weight,
+    max_qoe=1.0,
+    int_utility=False,
+    max_connections=config.MAX_CONNECTIONS,
+    num_cores=config.NUM_CORES,
+):
+    frame = time_step % fps
+    conn_index = frame % max_connections
+    handle_index = frame % num_cores
+    alloc_index = frame % num_cores
+    proc_qoe_dict = {}
+    rsu_qoe_dict = defaultdict(list)
+    hop_penalty_rate = 0.04
+
+    # 只计算该frame处理的veh的utility, 这样算应该就是global utility，
+    # 但是没有考虑到没有proc之外的车辆的qoe变化
+    for veh_id in proc_veh_set:
+        veh: Vehicle = vehs[veh_id]
+        proc_qoe_dict, rsu_qoe_dict = cal_qoe(
+            veh,
+            rsus,
+            max_qoe,
+            weight,
+            hop_penalty_rate,
+            process_rsu_id=veh.job.processing_rsu_id,
+            connect_rsu_id=veh.connected_rsu_id,
+            rsu_network=rsu_network,
+        )
+
+    # 计算其他veh的，但是由于rsu里handlingjob可能重复的原因，无法从rsu计算。因为veh不可能重复，所以可以计算veh的
+    # 这个不一定存在 
+    # for veh_id, veh in vehs.items():
+    #     # 跳过已计算
+    #     if veh_id in proc_veh_set:
+    #         continue
+
+    #     # 拼接未计算，这里可以搞个比值来权重全局和个人
+    #     cal_qoe(
+    #         veh,
+    #         rsus,
+    #         max_qoe,
+    #         weight,
+    #         hop_penalty_rate,
+    #         process_rsu_id=veh.job.processing_rsu_id,
+    #         connect_rsu_id=veh.connected_rsu_id,
+    #         rsu_network=rsu_network,
+    #         proc_veh_qoe_dict=proc_qoe_dict,
+    #         rsu_qoe_dict=rsu_qoe_dict,
+    #     )
+
+    return proc_qoe_dict, rsu_qoe_dict
+
+
+# 全局计算法
+def calculate_beta_utility(
+    vehs: Dict[str, Vehicle],
+    rsus: List[Rsu],
+    rsu_network,
+    time_step,
+    fps,
+    weight,
+    max_qoe=1.0,
+    int_utility=False,
+):
+    frame = time_step % fps
+    hop_penalty_rate = 0.04
+    # qoe = min(process_qoe, data_trans_qoe)
+    # shape (5, 20)
+    process_qoes = np.zeros((len(rsus), config.NUM_CORES))
+    data_trans_qoes = np.zeros((len(rsus), config.MAX_CONNECTIONS))
+
+    # 方法1遍历Rsu计算所有QoE
+    # 方法2遍历Vehicle计算所有QoE
+    # 需要测试计算是否有问题
+    for v_id, veh in vehs:
+        veh: Vehicle
+        # 云，本身，跳三种
+        if veh.job.processing_rsu_id == len(rsus):
+            veh.job.qoe = max_qoe * 0.1
+        elif veh.job.processing_rsu_id == veh.connected_rsu_id:
+            # 假如并没有connected_rsu_id或processing_rsu_id？
+
+            rsu = rsus[veh.job.processing_rsu_id]
+            index_in_proc_rsu = rsu.handling_jobs.index(veh)
+            # may已经断开连接？
+            index_in_trans_rsu = rsu.connections.index(veh)
+
+            cp = (
+                rsu.computation_power
+                * rsu.cp_norm[index_in_proc_rsu]
+                * rsu.cp_usage
+                / weight
+            )
+
+            process_qoe = veh.data_rate / config.JOB_DR_REQUIRE
+            trans_qoe = cp / config.JOB_CP_REQUIRE
+
+            process_qoes[veh.job.processing_rsu_id][index_in_proc_rsu] = process_qoe
+            data_trans_qoes[veh.job.processing_rsu_id][index_in_trans_rsu] = process_qoe
+
+            veh.job.qoe = min(process_qoe, trans_qoe)
+        else:
+            assert NotImplementedError()
+            ...
+
 
 # 問題特別多
 def calculate_utility_all_optimized(
@@ -129,7 +335,7 @@ def calculate_utility_all_optimized(
 
             if hconn is None:
                 continue
-            
+
             # Why?
             if not hconn.connected:
                 rsu.qoe_list.append(0)

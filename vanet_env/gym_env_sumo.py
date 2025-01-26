@@ -510,8 +510,8 @@ class Env(ParallelEnv):
         # frame job Schelling, imp
         self.md_frame_combined_action_space = spaces.MultiDiscrete(
             [
-                self.num_rsus + 2
-            ]  # this job connect and to rsu.id or cloud, 0 means self, num_rsu + 1 means not connect，default num_rsu = 20
+                self.num_rsus + 1
+            ]  # this job connect and to rsu.id or cloud, 0 means self，default num_rsu = 20
             + [2]  # handling arrival job? 0 for not, 1 for yes
             + [self.max_weight]  # computing power alloc, default: 5
             + [self.max_weight]  # bw alloc, default : 5
@@ -682,18 +682,31 @@ class Env(ParallelEnv):
 
         # self._space_init()
 
+        # not sure need or not
+        self.sumo.simulationStep()
+
         self.vehicle_ids = self.sumo.vehicle.getIDList()
 
-        self.vehicles = [
-            Vehicle(
+        self.vehicles = {
+            vehicle_id: Vehicle(
                 vehicle_id,
                 self.sumo,
                 self.timestep,
                 self.cache.get_content(self.timestep // self.caching_step),
             )
             for vehicle_id in self.vehicle_ids
-        ]
-        self.pending_job_vehicles = self.vehicles
+        }
+
+        # self.vehicles = [
+        #     Vehicle(
+        #         vehicle_id,
+        #         self.sumo,
+        #         self.timestep,
+        #         self.cache.get_content(self.timestep // self.caching_step),
+        #     )
+        #     for vehicle_id in self.vehicle_ids
+        # ]
+        # self.pending_job_vehicles = self.vehicles
 
         self._update_connections_queue()
 
@@ -723,11 +736,12 @@ class Env(ParallelEnv):
     def step(self, actions):
 
         # take action
-        self._take_frame_actions(actions)
-        
+        self._beta_take_frame_actions(actions)
+
         # caculate rewards
         # dev tag: calculate per timestep? or per fps?
-        rewards = self._calculate_rewards()
+        # calculate frame reward!
+        rewards = self._calculate_frame_rewards()
 
         # sumo simulation every 10 time steps
         if self.timestep % self.fps == 0:
@@ -764,11 +778,15 @@ class Env(ParallelEnv):
         return observations, rewards, terminations, truncations, infos
 
     def _update_rsus(self):
-        for rsu in self.rsus:
-            rsu.update_conn_list()
+        # for rsu in self.rsus:
+        #     rsu.update_conn_list()
 
         for rsu in self.rsus:
-            rsu.update_job_handling_list()
+            # update deprecated handling job
+            # maybe not necessary
+            for h_veh_id in rsu.handling_jobs:
+                pass
+
         # may not necessary
         # for rsu in self.rsus:
         #     rsu.job_clean()
@@ -781,28 +799,27 @@ class Env(ParallelEnv):
         # find new veh in map
         new_vehicle_ids = current_vehicle_ids - previous_vehicle_ids
         for vehicle_id in new_vehicle_ids:
-            self.vehicles.append(
-                Vehicle(
-                    vehicle_id,
-                    self.sumo,
-                    self.timestep,
-                    self.cache.get_content(self.timestep // self.caching_step),
-                )
+            self.vehicles[vehicle_id] = Vehicle(
+                vehicle_id,
+                self.sumo,
+                self.timestep,
+                self.cache.get_content(self.timestep // self.caching_step),
             )
 
         # find leaving veh
         removed_vehicle_ids = previous_vehicle_ids - current_vehicle_ids
-        self.vehicles = [
-            vehicle
-            for vehicle in self.vehicles
-            if vehicle.vehicle_id not in removed_vehicle_ids
-        ]
+
+        self.vehicles = {
+            veh_ids: vehicle
+            for veh_ids, vehicle in self.vehicles.items()
+            if veh_ids not in removed_vehicle_ids
+        }
 
         # update vehicle_ids
         self.vehicle_ids = list(current_vehicle_ids)
 
         # update every veh's position and direction
-        for vehicle in self.vehicles:
+        for vehicle in self.vehicles.values():
             vehicle.update_pos_direction()
             # dev tag: update content?
             vehicle.update_job_type(
@@ -810,7 +827,7 @@ class Env(ParallelEnv):
             )
 
         # vehs need pending job
-        self.pending_job_vehicles = [veh for veh in self.vehicles if not veh.job.done()]
+        # self.pending_job_vehicles = [veh for veh in self.vehicles if not veh.job.done()]
 
     def _single_frame_discrete_action_mask(
         self, rsu_idx, next_time_step, discrete=False
@@ -1027,6 +1044,93 @@ class Env(ParallelEnv):
             + [1]
         )
 
+    def _beta_take_frame_actions(self, actions):
+        # env 0
+        self.process_and_connect_veh_ids = set()
+
+        actions = actions[0]
+        frame = self.timestep % self.fps
+        # maybe conn_index must eq handle_index
+        conn_index = frame % self.max_connections
+        handle_index = frame % self.num_cores
+        alloc_index = frame % self.num_cores
+        """
+        根据frame来进行调度的index选择
+        """
+        # migration
+        for idx, action in enumerate(actions):
+
+            rsu = self.rsus[idx]
+            veh_id = rsu.connections_queue[conn_index]
+
+            # job具有唯一性，一个veh只有可能分配到一个rsu上以及连接到一个rsu(或云)
+            if veh_id is not None and veh_id in self.vehicle_ids:
+                self.process_and_connect_veh_ids.add(veh_id)
+                veh = self.vehicles[veh_id]
+
+                a_conn = action[0]
+                if a_conn == self.num_rsus + 1:
+                    # 断开连接这个操作最好不要做，主要是为了标识迁移者
+                    # 要不action不要这个了，因为感觉无意义
+                    # 甚至云都可以不用，因为如果没有操作等于跟云通讯
+                    continue  # not handling or continue
+                elif a_conn == self.num_rsus:
+                    # cloud handling
+                    # direct connect to cloud
+                    # conn.connect(rsu, is_cloud=True)
+                    # 5步调度一次
+                    rsu.frame_queuing_job(rsu, veh, conn_index, cloud=True)
+                    ...
+                elif a_conn == 0:
+                    rsu.frame_queuing_job(rsu, veh, conn_index)
+                else:
+                    # conn.connect(rsu)
+                    # 往另一个handling，这里可能会导致一个rsu的handling_queue有太多待handling
+                    # 因此只在frame_queuing_job里确立connect关系
+                    self.rsus[
+                        (
+                            self.rsu_ids[a_conn] - 1
+                            if a_conn <= idx
+                            else self.rsu_ids[a_conn]
+                        )
+                    ].frame_queuing_job(rsu, veh, conn_index)
+        # handling
+        for idx, action in enumerate(actions):
+            rsu = self.rsus[idx]
+            # handling job only if job arrival
+            # if rsu.handling_job_queue.size() > 0:
+            rsu.frame_handling_job(
+                self.process_and_connect_veh_ids,
+                rsu,
+                handle_index,
+                action[1:2],
+                self.vehicle_ids,
+            )
+
+        # allocation and caching
+        for idx, action in enumerate(actions):
+            rsu = self.rsus[idx]
+            # alloc if handling job
+            # if rsu.handling_jobs.size() > 0:
+            a = action[2:5]
+            cp_a = a[0]
+            bw_a = a[1]
+            cp_u = a[2]
+            rsu.frame_allocate_computing_power(
+                alloc_index,
+                cp_a,
+                cp_u,
+                self.process_and_connect_veh_ids,
+                self.vehicle_ids,
+            )
+            rsu.frame_allocate_bandwidth(
+                alloc_index, bw_a, self.process_and_connect_veh_ids, self.vehicle_ids
+            )
+
+            if self.timestep % self.caching_step == 0:
+                a = action[5:]
+                rsu.frame_cache_content(a)
+
     def _take_frame_actions(self, actions, custom=True, mask=False):
         """
         frame job Schelling
@@ -1070,6 +1174,7 @@ class Env(ParallelEnv):
         if custom:
             actions = actions[0]
             if not mask:
+                # migration
                 for idx, action in enumerate(actions):
 
                     rsu = self.rsus[idx]
@@ -1099,11 +1204,16 @@ class Env(ParallelEnv):
                                     else self.rsu_ids[a_conn]
                                 )
                             ].frame_queuing_job(conn)
-                    
+                # handling
+                for idx, action in enumerate(actions):
+                    rsu = self.rsus[idx]
                     # handling job only if job arrival
                     if rsu.handling_job_queue.size() > 0:
                         rsu.frame_handling_job(action[1:2])
 
+                # allocation and caching
+                for idx, action in enumerate(actions):
+                    rsu = self.rsus[idx]
                     # alloc if handling job
                     if rsu.handling_jobs.size() > 0:
                         a = action[2:5]
@@ -1474,6 +1584,34 @@ class Env(ParallelEnv):
             caching_decision = action[-self.max_caching :]
             rsu.cache_content(caching_decision)
         pass
+
+    def _calculate_frame_rewards(self):
+        rewards = {}
+
+        proc_qoe_dict, rsu_qoe_dict = utility.calculate_frame_utility(
+            vehs=self.vehicles,
+            rsus=self.rsus,
+            proc_veh_set=self.process_and_connect_veh_ids,
+            rsu_network=self.rsu_network,
+            time_step=self.timestep,
+            fps=self.fps,
+            weight=self.max_weight,
+        )
+
+        self.proc_qoe_dict = proc_qoe_dict
+        self.rsu_qoe_dict = rsu_qoe_dict
+
+        for idx, agent in enumerate(self.agents):
+            rsu = self.rsus[idx]
+            u_local = rsu.avg_u
+            # dev tag: factor may need specify
+            a = rsu_qoe_dict[idx]
+            if not a:
+                rewards[agent] = 0.0
+            else:
+                rewards[agent] = np.average(a)
+
+        return rewards
 
     def _calculate_rewards(self):
         rewards = {}
@@ -1865,57 +2003,86 @@ class Env(ParallelEnv):
                         self.connections_queue.append(conn)
         else:
             # connections update
-            for veh in self.pending_job_vehicles:
-                # if veh.job.done():
-                #     continue
+            for rsu in self.rsus:
+                rsu.range_connections.clear()
+                rsu.distances.clear()
 
+            for veh_id, veh in self.vehicles.items():
                 vehicle_x, vehicle_y = veh.position.x, veh.position.y
                 vehicle_coord = np.array([vehicle_x, vehicle_y])
 
-                # find vehicle_coord range has rsu?
-                indices = self.rsu_tree.query_ball_point(
-                    vehicle_coord, self.max_distance
+                # indices = self.rsu_tree.query_ball_point(
+                #     vehicle_coord, self.max_distance
+                # )
+
+                # 距离排序
+                # only connect 1
+                distances, sorted_indices = self.rsu_tree.query(
+                    vehicle_coord, k=len(config.RSU_POSITIONS)
                 )
+                idx = sorted_indices[0]
+                dis = distances[0]
+                veh.connected_rsu_id = idx
+                veh.distance_to_rsu = dis
+                rsu = self.rsus[idx]
+                rsu.range_connections.append(veh.vehicle_id)
+                rsu.distances.append(dis)
 
-                # remove deprecated veh.connections which veh.connections[i].rsu.id not in indices
-                for i in range(veh.connections.max_size):
-                    if (
-                        veh.connections[i] is not None
-                        and veh.connections[i].rsu.id not in indices
-                    ):
-                        veh.connections[i].disconnect()
-                        veh.connections[i] = None
+            for rsu in self.rsus:
+                rsu.connections_queue.olist = list.copy(rsu.range_connections.olist)
 
-                # is there need choose one to prefer connect?
-                for idx in indices:
-                    rsu = self.rsus[idx]
-                    conn = Connection(rsu, veh)
+            if False:
+                for veh in self.pending_job_vehicles:
+                    # if veh.job.done():
+                    #     continue
 
-                    # update rsu conn queue, only one here
-                    matching_connection = [
-                        c for c in rsu.range_connections if c == conn
-                    ]
+                    vehicle_x, vehicle_y = veh.position.x, veh.position.y
+                    vehicle_coord = np.array([vehicle_x, vehicle_y])
 
-                    # if rsu--veh exist, update veh info else append
-                    if matching_connection:
-                        matching_connection[0].veh = veh
-                        conn = matching_connection[0]
-                    else:
-                        rsu.range_connections.append(conn)
+                    # find vehicle_coord range has rsu?
+                    indices = self.rsu_tree.query_ball_point(
+                        vehicle_coord, self.max_distance
+                    )
 
-                    # update veh conn queue, only one here
-                    # need update to new logic, i.e. conn replace rsu?
-                    veh_matching_connection = [c for c in veh.connections if c == conn]
-                    # if veh--rsu exist, update veh info else append
-                    if veh_matching_connection:
-                        veh_matching_connection[0].veh = veh
-                        conn = veh_matching_connection[0]
-                    else:
-                        veh.connections.append(conn)
+                    # remove deprecated veh.connections which veh.connections[i].rsu.id not in indices
+                    for i in range(veh.connections.max_size):
+                        if (
+                            veh.connections[i] is not None
+                            and veh.connections[i].rsu.id not in indices
+                        ):
+                            veh.connections[i].disconnect()
+                            veh.connections[i] = None
 
-                    self.connections_queue.append(conn)
-                    # just connect one
-                    break
+                    # is there need choose one to prefer connect?
+                    for idx in indices:
+                        rsu = self.rsus[idx]
+                        conn = Connection(rsu, veh)
+
+                        # update rsu conn queue, only one here
+                        matching_connection = [
+                            c for c in rsu.range_connections if c == conn
+                        ]
+
+                        # if rsu--veh exist, update veh info else append
+                        if matching_connection:
+                            matching_connection[0].veh = veh
+                            conn = matching_connection[0]
+                        else:
+                            rsu.range_connections.append(conn)
+
+                        # update veh conn queue, only one here
+                        # need update to new logic, i.e. conn replace rsu?
+                        veh_matching_connection = [
+                            c for c in veh.connections if c == conn
+                        ]
+                        # if veh--rsu exist, update veh info else append
+                        if veh_matching_connection:
+                            veh_matching_connection[0].veh = veh
+                            conn = veh_matching_connection[0]
+                        else:
+                            veh.connections.append(conn)
+
+                        self.connections_queue.append(conn)
 
                 # conn remove logic #1
                 # check if veh out
@@ -1934,16 +2101,18 @@ class Env(ParallelEnv):
                 #         ]
 
             # rsu conn remove logic #2 i.e. connection loss
-            for rsu in self.rsus:
-                for idx, c in enumerate(rsu.range_connections):
-                    if c is None:
-                        continue
+            # deprecated
+            if False:
+                for rsu in self.rsus:
+                    for idx, c in enumerate(rsu.range_connections):
+                        if c is None:
+                            continue
 
-                    if c not in self.connections_queue:
-                        rsu.range_connections[idx].disconnect()
-                        rsu.range_connections.remove(idx)
-                
-                rsu.connections_queue.olist = list.copy(rsu.range_connections.olist)
+                        if c not in self.connections_queue:
+                            rsu.range_connections[idx].disconnect()
+                            rsu.range_connections.remove(idx)
+
+                    rsu.connections_queue.olist = list.copy(rsu.range_connections.olist)
             # job disconnected logic
 
             # check if veh out

@@ -64,8 +64,8 @@ ANTENNA_GAIN = 3
 # Data rate threshold
 DATA_RATE_TR = 40
 # max computation cores
-NUM_CORES = 4
-# max downlink connections
+NUM_CORES = 5
+# max downlink connections, better to equal cores and 最好能被fps整除
 MAX_CONNECTIONS = 5
 
 """

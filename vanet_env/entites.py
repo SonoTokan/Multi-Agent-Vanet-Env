@@ -1,5 +1,6 @@
 import random
 import sys
+from typing import List
 
 from shapely import Point
 
@@ -46,7 +47,9 @@ class OrderedQueueList:
         return False
 
     def replace(self, elem, index):
+        temp = self.olist[index]
         self.olist[index] = elem
+        return temp
 
     def top_and_sink(self):
         top = self.olist[0]
@@ -119,6 +122,9 @@ class OrderedQueueList:
         else:  # 如果 item 是普通值
             return item in self.olist
 
+    def clear(self):
+        self.olist = [None] * self.max_size
+
     def index(self, elem):
         return self.olist.index(elem)
 
@@ -157,9 +163,11 @@ class Rsu:
         self.max_cores = max_cores
         self.num_atn = num_atn
 
+        # distance to vehs
+        self.distances = OrderedQueueList(max_connections)
         # copy from range_connections when update connections
         self.connections_queue = OrderedQueueList(max_connections)
-        # conn in range, not modify only if update connections 
+        # conn in range, not modify only if update connections
         self.range_connections = OrderedQueueList(max_connections)
         self.connections = OrderedQueueList(max_connections)
         self.handling_job_queue = OrderedQueueList(max_cores)  # may not necessary
@@ -188,28 +196,40 @@ class Rsu:
     def get_tx_power(self):
         return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
 
-    def frame_allocate_computing_power(self, cp_a: int, cp_usage: int):
+    def frame_allocate_computing_power(
+        self, alloc_index: int, cp_a: int, cp_usage: int, proc_veh_set: set["Vehicle"], veh_ids
+    ):
         self.cp_usage = cp_usage
-        self.computation_power_alloc.queue_jumping(cp_a)
+        self.computation_power_alloc.replace(cp_a, alloc_index)
         self.cp_norm = utils.normalize_array_np(self.computation_power_alloc)
+        veh: Vehicle = self.handling_jobs[alloc_index]
+        if veh is not None and veh.vehicle_id in veh_ids:
+            proc_veh_set.add(veh.vehicle_id)
 
     def frame_cache_content(self, caching_decision: int):
         self.caching_contents.queue_jumping(caching_decision)
 
-    def frame_allocate_bandwidth(self, bw_a: int, bw_ratio=5):
+    # notice, cal utility only when connect this rsu
+    def frame_allocate_bandwidth(
+        self, alloc_index: int, bw_a: int, proc_veh_set: set["Vehicle"], veh_ids,bw_ratio=1
+    ):
         from vanet_env import network
 
         self.bw_ratio = bw_ratio
-        self.bw_alloc.queue_jumping(bw_a)
+        self.bw_alloc.replace(bw_a, alloc_index)
         self.bw_norm = utils.normalize_array_np(self.bw_alloc)
 
-        for idx, conn in enumerate(self.connections):
-            if conn is not None:
-                conn.data_rate = network.channel_capacity(
-                    self, conn.veh, self.bw * self.bw_norm[idx] * self.bw_ratio
+        for idx, veh in enumerate(self.connections):
+            veh: Vehicle
+            if veh is not None and veh.vehicle_id in veh_ids:
+                proc_veh_set.add(veh.vehicle_id)
+                veh.data_rate = network.channel_capacity(
+                    self, veh, self.bw * self.bw_norm[idx] * self.bw_ratio
                 )
 
-    def allocate_computing_power(self, ac_list: list, cp_usage):
+    def allocate_computing_power(
+        self, ac_list: list, cp_usage, proc_veh_set: set["Vehicle"]
+    ):
         self.cp_usage = cp_usage
         self.computation_power_alloc = list.copy(ac_list)
         self.cp_norm = utils.normalize_array_np(self.computation_power_alloc)
@@ -227,11 +247,11 @@ class Rsu:
         self.bw_alloc = list.copy(abw_list)
         self.bw_norm = utils.normalize_array_np(self.bw_alloc)
 
-        for idx, conn in enumerate(self.connections):
-
-            if conn is not None:
-                conn.data_rate = network.channel_capacity(
-                    self, conn.veh, self.bw * self.bw_norm[idx] * self.bw_ratio
+        # update all or update one?
+        for idx, veh in enumerate(self.connections):
+            if veh is not None:
+                veh.data_rate = network.channel_capacity(
+                    self, veh, self.bw * self.bw_norm[idx] * self.bw_ratio
                 )
 
     # dev tag: index connect?
@@ -263,26 +283,62 @@ class Rsu:
             if conn not in self.range_connections:
                 self.disconnect(conn)
 
-    def update_job_handling_list(self):
+    # def update_job_handling_list(self):
+    #     for idx, veh_id in enumerate(self.handling_jobs):
+    #          if veh_id is None:
+    #             continue
 
-        # clean deprecated jobs
-        for idx, hconn in enumerate(self.handling_jobs):
-            if hconn is None:
-                continue
-            if hconn.connected == False:
-                self.handling_jobs.remove(idx)
+    # clean deprecated jobs
+    # for idx, hconn in enumerate(self.handling_jobs):
+    #     if hconn is None:
+    #         continue
+    #     if hconn.connected == False:
+    #         self.handling_jobs.remove(idx)
 
-    def frame_handling_job(self, handling):
+    # python 3.9+
+    def frame_handling_job(
+        self,
+        proc_veh_set: set["Vehicle"],
+        rsu: "Rsu",
+        h_index: int,
+        handling: int,
+        veh_ids,
+    ):
         # not handling 也 抛弃
-        hconn = self.handling_job_queue.pop()
+        veh: Vehicle = self.handling_job_queue[h_index]
 
-        if handling == 1:
+        if veh is not None and veh.vehicle_id in veh_ids:
+            proc_veh_set.add(veh.vehicle_id)
 
-            if hconn not in self.handling_jobs:
-                hconn.veh.job.processing_rsu_id = self.id
-                self.handling_jobs.queue_jumping(hconn)
-                # dev tag: replace or append? now jumping!
-                hconn.rsu.connect(hconn)
+            if handling == 1:
+                if veh not in self.handling_jobs:
+                    veh.job.processing_rsu_id = self.id
+                    veh_replaced: Vehicle = self.handling_jobs.replace(
+                        elem=veh, index=h_index
+                    )
+                    # 替换自动云连接
+                    if veh_replaced is not None:
+                        veh_replaced.is_cloud = True
+                        veh_replaced.job.processing_rsu_id = config.NUM_RSU
+            # cloud
+            else:
+                veh.is_cloud = True
+                veh.job.processing_rsu_id = config.NUM_RSU
+
+    # python < 3.11
+    def frame_queuing_job(
+        self, conn_rsu: "Rsu", veh: "Vehicle", index: int, cloud: bool = False
+    ):
+        if cloud:
+            # there can be modify to more adaptable
+            # specify rsu process this
+            # veh.connected_rsu_id = config.NUM_RSU
+            veh.is_cloud = True
+            veh.job.processing_rsu_id = config.NUM_RSU
+
+        # 唯一一个使is_cloud失效的地方
+        veh.is_cloud = False
+        self.handling_job_queue.replace(elem=veh, index=index)
 
     def handling_job(self, jbh_list: list):
         # handle
@@ -299,16 +355,6 @@ class Rsu:
             # else:
             #     hconn.disconnect()
         ...
-
-    def frame_queuing_job(self, conn, cloud=False):
-        if cloud:
-            # there can be modify to more adaptable
-            # specify rsu process this
-            conn.rsu = self
-            conn.is_cloud = True
-            conn.veh.job.processing_rsu_id = config.NUM_RSU
-
-        self.handling_job_queue.queue_jumping(conn)
 
     def queuing_job(self, conn, cloud=False):
         if cloud:
@@ -363,7 +409,7 @@ class Job:
         # processed size # deprecated
         self.job_processed = 0
         # processing rsu
-        self.processing_rsu_id = config.NUM_RSU + 1
+        self.processing_rsu_id = config.NUM_RSU
 
     # deprecated
     def done(self):
@@ -407,8 +453,12 @@ class Vehicle:
             self.position = Point(sumo.vehicle.getPosition(vehicle_id))
             self.angle = sumo.vehicle.getAngle(self.vehicle_id)
 
+        self.is_cloud = False
+        self.connected_rsu_id = None
+        self.data_rate = 0
+        self.distance_to_rsu = None
         # connected rsus, may not needed
-        self.connections = OrderedQueueList(max_connections)
+        # self.connections = OrderedQueueList(max_connections)
 
     # only use from Connection.disconnect()
     def disconnect(self, conn):
