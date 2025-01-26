@@ -228,32 +228,49 @@ def test():
 
 
 def normalize_array_np(arr):
+    sum = 0
+    norm = []
+
+    for num in arr:
+        if num is not None:
+            sum += num
+
+    if sum == 0:
+        return [0] * len(arr)
+
+    for num in arr:
+        norm.append(0 if num is None else num / sum)
+
+    return norm
+
+
+def normalize_array_np_deprecated(arr):
     """
     标准化处理包含None的数组：
     1. 非None值将被转换为 x * count / total，其中：
        - count 是非None值的数量
        - total 是非None值的总和
     2. None值保持原位置不变
-    
+
     参数：
     arr (list): 包含数值和None的列表
-    
+
     返回：
     list: 处理后的列表，非None值标准化，None保持原位置
-    
+
     异常：
     ValueError: 当非None值的总和为0但存在非零元素时抛出
     """
     # 过滤出非None值
     non_none = [x for x in arr if x is not None]
     count = len(non_none)
-    
+
     # 处理全None情况
     if count == 0:
         return arr.copy()
-    
+
     total = sum(non_none)
-    
+
     # 处理总和为0的情况
     if total == 0:
         if all(x == 0 for x in non_none):
@@ -261,13 +278,11 @@ def normalize_array_np(arr):
             return [0 if x is not None else None for x in arr]
         else:
             raise ValueError("非None值的总和为0但存在非零元素，无法标准化")
-    
+
     # 计算标准化值
-    return [
-        x * count / total if x is not None else None
-        for x in arr
-    ]
-    
+    return [x * count / total if x is not None else None for x in arr]
+
+
 # def normalize_array_np(arr: np.ndarray) -> np.ndarray:
 #     """将输入数组归一化为概率分布（总和=1）
 

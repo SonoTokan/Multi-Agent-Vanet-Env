@@ -6,7 +6,7 @@ sys.path.append("./")
 from vanet_env.entites import Rsu, Vehicle
 from vanet_env import network, config, utils
 
-
+# 問題特別多
 def calculate_utility_all_optimized(
     vehs: list,
     rsus: list,
@@ -14,8 +14,8 @@ def calculate_utility_all_optimized(
     time_step,
     fps,
     weight,
-    max_qoe,
-    int_utility=True,
+    max_qoe=1.0,
+    int_utility=False,
 ):
     """_summary_
 
@@ -51,6 +51,7 @@ def calculate_utility_all_optimized(
     # ========== 车辆处理阶段 ==========
     global_qoe_list = []
 
+    # process_rsu_id 不同步的问题？
     for tv in vehs:
         job = tv.job  # 减少属性访问次数
         process_rsu_id = job.processing_rsu_id
@@ -59,26 +60,39 @@ def calculate_utility_all_optimized(
         # 未处理状态的快速判断
         if (process_rsu_id == len(rsus) + 1) or (process_rsu_id is None):
             if (time_step - join_time) // fps >= 2:
+                job.qoe = 0
                 global_qoe_list.append(0)
             continue
 
-        # 获取处理 RSU 的缓存内容（提前获取）
-        process_rsu = rsus[process_rsu_id]
-        process_cache = process_rsu.caching_contents
-
-        # 计算基础算力参数（移出内层循环）
-        cp_base = process_rsu.computation_power * process_rsu.cp_usage // weight
-
+        # 由于环境的原因，veh只连一个rsu
         for c in filter(None, tv.connections):  # 过滤空连接
             if c.is_cloud:
-                c.qoe = cloud_qoe
+                # c.qoe = cloud_qoe
                 global_qoe_list.append(cloud_qoe)
                 # qoe溯源
                 c.rsu.qoe_list.append(cloud_qoe)
+                job.qoe = cloud_qoe
+                c.qoe = job.qoe
                 continue
+
+            # why the job not connected?
+            if not c.check_connection():
+                print(f"timestep{time_step}:veh job not connected")
+                if (time_step - join_time) // fps >= 2:
+                    job.qoe = 0
+                    c.qoe = 0
+                    global_qoe_list.append(0)
+                    continue
+
+            # 获取处理 RSU 的缓存内容（提前获取）
+            process_rsu = rsus[process_rsu_id]
+            process_cache = process_rsu.caching_contents
+            # 计算基础算力参数（移出内层循环）
+            cp_base = process_rsu.computation_power * process_rsu.cp_usage // weight
 
             # 获取连接参数
             conn_rsu = c.rsu
+
             alloc_idx = process_rsu.handling_jobs.index(c)
 
             # 计算核心指标（使用预存值）
@@ -86,10 +100,7 @@ def calculate_utility_all_optimized(
             dr = min(c.data_rate, config.JOB_DR_REQUIRE)  # 简化条件判断
 
             # QoE 计算（使用预存系数）
-            qoe = max_qoe_half * (
-                (config.JOB_DR_REQUIRE - dr / config.JOB_DR_REQUIRE)
-                + (config.JOB_CP_REQUIRE - cp / config.JOB_CP_REQUIRE)
-            )
+            qoe = min((dr / config.JOB_DR_REQUIRE), cp / config.JOB_CP_REQUIRE)
 
             # 跨节点惩罚
             if process_rsu_id != conn_rsu.id:
@@ -102,21 +113,28 @@ def calculate_utility_all_optimized(
                 qoe *= caching_penalty
 
             # 结果记录
-            c.qoe = int(qoe) if int_utility else qoe
+            job.qoe = int(qoe) if int_utility else qoe
+            c.qoe = job.qoe
             global_qoe_list.append(qoe)
 
     # ========== RSU 处理阶段 ==========
     individual_utilities = []
-    ee_base = 3  # 能量效率基数
+    ee_base = 0.3  # 能量效率基数
 
     for rsu in rsus:
         rsu_cache = rsu.caching_contents
-        cp_max = rsu.computation_power * rsu.cp_usage * 0.2
+        cp_max = rsu.computation_power * rsu.cp_usage // weight
 
         for idx, hconn in enumerate(rsu.handling_jobs):
+
             if hconn is None:
                 continue
-
+            
+            # Why?
+            if not hconn.connected:
+                rsu.qoe_list.append(0)
+                print(f"timestep{time_step}:handling disconnected job")
+                continue
             # 云处理快速通道
             # 云是由conn的rsu处理的
             # handling_jobs不可能出现cloud
@@ -128,12 +146,8 @@ def calculate_utility_all_optimized(
             dr = min(hconn.data_rate, config.JOB_DR_REQUIRE)
             cp = cp_max * rsu.cp_norm[idx]
 
-            # QoE 计算
-            qoe = max_qoe_half * (
-                (config.JOB_DR_REQUIRE - dr / config.JOB_DR_REQUIRE)
-                + (config.JOB_CP_REQUIRE - cp / config.JOB_CP_REQUIRE)
-            )
-
+            # QoE 计算，符合水桶效应
+            qoe = min((dr / config.JOB_DR_REQUIRE), cp / config.JOB_CP_REQUIRE)
             # 跨节点惩罚
             if hconn.rsu.id != rsu.id:
                 hop = hop_cache.get((rsu.id, hconn.rsu.id), 0)
@@ -152,7 +166,7 @@ def calculate_utility_all_optimized(
         qoe_list = rsu.qoe_list
         # RSU 效用聚合
         if qoe_list:
-            avg_u = sum(qoe_list) + len(qoe_list) * ee / len(qoe_list)
+            avg_u = sum(qoe_list) * 0.7 + len(qoe_list) * ee / len(qoe_list)
             individual_utilities.append(int(avg_u) if int_utility else avg_u)
             rsu.avg_u = avg_u
 
@@ -170,6 +184,7 @@ def calculate_utility_all_optimized(
     return avg_global, avg_local
 
 
+# deprecated 需按照上面的计算方法计算
 def calculate_utility_all(
     vehs: list,
     rsus: list,

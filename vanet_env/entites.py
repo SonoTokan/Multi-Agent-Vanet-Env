@@ -8,7 +8,7 @@ import traci
 sys.path.append("./")
 
 import numpy as np
-from vanet_env import config, utils, network
+from vanet_env import config, utils
 
 
 # rectange, unit (meters)
@@ -97,7 +97,7 @@ class OrderedQueueList:
         return str(self.olist)
 
     def __getitem__(self, index):
-        if 0 <= index < self.max_size:
+        if index < self.max_size:
             return self.olist[index]
         else:
             raise IndexError("Index out of range")
@@ -157,23 +157,26 @@ class Rsu:
         self.max_cores = max_cores
         self.num_atn = num_atn
 
+        # copy from range_connections when update connections
         self.connections_queue = OrderedQueueList(max_connections)
+        # conn in range, not modify only if update connections 
+        self.range_connections = OrderedQueueList(max_connections)
         self.connections = OrderedQueueList(max_connections)
         self.handling_job_queue = OrderedQueueList(max_cores)  # may not necessary
         self.handling_jobs = OrderedQueueList(max_cores)
-        self.bw_alloc = OrderedQueueList(max_cores)
+        self.bw_alloc = OrderedQueueList(max_connections)
         self.computation_power_alloc = OrderedQueueList(max_cores)
         self.caching_contents = OrderedQueueList(caching_capacity)
 
         self.energy_efficiency = 0
 
         # cp_usage max is weight
-        self.cp_usage = 0
+        self.cp_usage = 10
         self.bw_ratio = 5
         self.tx_ratio = 100
 
         self.cp_norm = [0] * self.handling_jobs.max_size
-        self.bw_norm = [0] * self.handling_jobs.max_size
+        self.bw_norm = [0] * self.connections.max_size
 
         self.ee = 0
         self.max_ee = 3
@@ -194,6 +197,8 @@ class Rsu:
         self.caching_contents.queue_jumping(caching_decision)
 
     def frame_allocate_bandwidth(self, bw_a: int, bw_ratio=5):
+        from vanet_env import network
+
         self.bw_ratio = bw_ratio
         self.bw_alloc.queue_jumping(bw_a)
         self.bw_norm = utils.normalize_array_np(self.bw_alloc)
@@ -216,27 +221,35 @@ class Rsu:
         ...
 
     def allocate_bandwidth(self, abw_list: list, bw_ratio):
+        from vanet_env import network
+
         self.bw_ratio = bw_ratio
         self.bw_alloc = list.copy(abw_list)
         self.bw_norm = utils.normalize_array_np(self.bw_alloc)
 
         for idx, conn in enumerate(self.connections):
+
             if conn is not None:
                 conn.data_rate = network.channel_capacity(
                     self, conn.veh, self.bw * self.bw_norm[idx] * self.bw_ratio
                 )
 
     # dev tag: index connect?
-    def connect(self, conn, jumping=False, index=-1):
+    def connect(self, conn, jumping=True, index=-1):
         conn.connect(self)
 
         if jumping:
+            self.disconnect_last()
             self.connections.queue_jumping(conn)
         else:
             if index == -1:
                 self.connections.append(conn)
             else:
                 self.connections.replace(conn, index)
+
+    def disconnect_last(self):
+        if self.connections[-1] is not None:
+            self.disconnect(self.connections[-1])
 
     def disconnect(self, conn):
         conn.disconnect()
@@ -247,7 +260,7 @@ class Rsu:
         for idx, conn in enumerate(self.connections):
             if conn is None:
                 continue
-            if conn not in self.connections_queue:
+            if conn not in self.range_connections:
                 self.disconnect(conn)
 
     def update_job_handling_list(self):
@@ -260,13 +273,15 @@ class Rsu:
                 self.handling_jobs.remove(idx)
 
     def frame_handling_job(self, handling):
+        # not handling 也 抛弃
         hconn = self.handling_job_queue.pop()
 
-        if handling:
+        if handling == 1:
+
             if hconn not in self.handling_jobs:
                 hconn.veh.job.processing_rsu_id = self.id
                 self.handling_jobs.queue_jumping(hconn)
-                # dev tag: replace or append?
+                # dev tag: replace or append? now jumping!
                 hconn.rsu.connect(hconn)
 
     def handling_job(self, jbh_list: list):
@@ -344,6 +359,7 @@ class Job:
         # deprecated
         self.job_size = job_size
         self.job_type = job_type
+        self.qoe = 0
         # processed size # deprecated
         self.job_processed = 0
         # processing rsu
@@ -393,6 +409,11 @@ class Vehicle:
 
         # connected rsus, may not needed
         self.connections = OrderedQueueList(max_connections)
+
+    # only use from Connection.disconnect()
+    def disconnect(self, conn):
+        if conn in self.connections:
+            self.connections.remove(elem=conn)
 
     def update_job_type(self, job_type):
         self.job_type = job_type
@@ -486,10 +507,13 @@ class Connection:
             self.rsu = rsu
             self.connected = True
 
+    # process by rsu
     def disconnect(self):
-        self.rsu = None
+        # self.rsu = None
+        # self.veh.job.processing_rsu_id = None
         self.is_cloud = False
         self.connected = False
+        self.veh.disconnect(self)
 
     def __eq__(self, other):
         if other is None:
