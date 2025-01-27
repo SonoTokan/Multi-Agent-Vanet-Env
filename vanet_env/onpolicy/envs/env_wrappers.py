@@ -809,7 +809,7 @@ class ShareDummyVecEnv(ShareVecEnv):
         # 按列拼接
         new_nvec = np.column_stack((zeros, nvec))
         warp_action_space = MultiDiscrete(new_nvec)
-        
+
         ShareVecEnv.__init__(
             self,
             len(env_fns),
@@ -853,7 +853,7 @@ class ShareDummyVecEnv(ShareVecEnv):
         # observations, rewards, terminations, truncations, infos
         r_obs = results[0]
         r_rew = results[1]
-        r_dones = results[3]
+        r_dones = results[2]
         r_infos = results[4]
 
         for r_keys in r_obs:

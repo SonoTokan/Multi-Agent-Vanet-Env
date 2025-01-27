@@ -92,7 +92,6 @@ class Env(ParallelEnv):
         self.max_step = max_step
         self.caching_fps = caching_fps
         self.caching_step = max_step // caching_fps
-        print(f"caching_step:{self.caching_step}")
 
         random.seed(self.seed)
 
@@ -166,7 +165,7 @@ class Env(ParallelEnv):
         self.content_list, self.aggregated_df_list, self.aggregated_df = (
             self.cache.get_content_list()
         )
-        self.cache.get_content(self.timestep // self.caching_step)
+        self.cache.get_content(min(self.timestep // self.caching_step, 9))
 
     def _sumo_init(self):
         # SUMO detector
@@ -692,7 +691,7 @@ class Env(ParallelEnv):
                 vehicle_id,
                 self.sumo,
                 self.timestep,
-                self.cache.get_content(self.timestep // self.caching_step),
+                self.cache.get_content(min(self.timestep // self.caching_step, 9)),
             )
             for vehicle_id in self.vehicle_ids
         }
@@ -775,6 +774,10 @@ class Env(ParallelEnv):
         if self.render_mode == "human":
             self.render()
 
+        # if env not reset auto
+        if not self.sumo_has_init:
+            self.reset()
+
         return observations, rewards, terminations, truncations, infos
 
     def _update_rsus(self):
@@ -803,7 +806,7 @@ class Env(ParallelEnv):
                 vehicle_id,
                 self.sumo,
                 self.timestep,
-                self.cache.get_content(self.timestep // self.caching_step),
+                self.cache.get_content(min(self.timestep // self.caching_step, 9)),
             )
 
         # find leaving veh
@@ -823,7 +826,7 @@ class Env(ParallelEnv):
             vehicle.update_pos_direction()
             # dev tag: update content?
             vehicle.update_job_type(
-                self.cache.get_content(self.timestep // self.caching_step)
+                self.cache.get_content(min(self.timestep // self.caching_step, 9))
             )
 
         # vehs need pending job
