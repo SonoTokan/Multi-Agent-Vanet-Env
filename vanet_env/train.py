@@ -17,11 +17,14 @@ from vanet_env.onpolicy.envs.env_wrappers import (
     ShareDummyVecEnv,
 )
 
+max_step = 360000
+env_max_step = max_step // 10
+
 
 def make_train_env():
     def get_env_fn():
         def init_env():
-            env = Env(None)
+            env = Env(None, max_step=env_max_step)
 
             return env
 
@@ -91,6 +94,9 @@ def main(args):
         all_args.seed = np.random.randint(10000, 100000)
 
     print("seed is :", all_args.seed)
+
+    all_args.num_env_steps = max_step
+    all_args.episode_length = max_step // 10
 
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
