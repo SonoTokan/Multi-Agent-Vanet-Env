@@ -1,5 +1,6 @@
 import functools
 import itertools
+import math
 import random
 import sys
 
@@ -593,6 +594,59 @@ class Env(ParallelEnv):
         # rsus: avg usage, avg handling jobs count / all job capicity, veh count
         self.global_frame_box_obs_space = spaces.Box(0.0, 1.0, shape=(3,))
 
+        # arrival job num / all,
+        # handling_jobs num / all,
+        # queue_connections num / all,
+        # connected num /all
+        # selfid = realid / self.num_rsus
+        # Neighbor id (max 2, and id = realid / self.num_rsus), may not need
+        self.local_box_obs_space = spaces.Box(0.0, 1.0, shape=(7,))
+
+        # rsus: avg handling jobs count / all job capicity per rsu, veh count
+        self.global_frame_box_obs_space = spaces.Box(
+            0.0, 1.0, shape=(self.num_rsus + 1,)
+        )
+
+        # 第一个动作，将connections queue的veh迁移至哪个邻居？0或1，box即0-0.49 0.5-1.0
+        # 第一个动作可以改为每个rsu的任务分配比例（自己，邻居1，邻居2），这样适合box，
+        # 这样改的话handling_jobs就是个元组（veh, 任务比例）
+        # 第二个动作，将handling jobs内的算力资源进行分配
+        # 第三个动作，将connections内的通信资源进行分配
+        # 第四个动作, 分配总算力
+        # 第五个动作, 缓存策略
+        neighbor_num = len(self.rsu_network[0])
+        self.box_neighbor_action_space = spaces.Box(
+            0.0,
+            1.0,
+            shape=(
+                neighbor_num
+                + 1
+                + self.num_cores
+                + self.max_connections
+                + 1
+                + self.max_caching,
+            ),
+        )
+        # self.md_neighbor_action_space = spaces.MultiDiscrete()
+        # self.d_neighbor_action_space = spaces.Discrete()
+
+        # 1 * max_connections, 0.00-0.05 math.floor(action * num_rsu) = real_rsu_id
+        # 1 * num_cores cp_alloc
+        # 1 * max_connections bw alloc
+        # 1 cp_usage
+        # 1 * max_caching caching choose, math.floor(action * max_content)
+        self.box_action_space = spaces.Box(
+            0.0,
+            1.0,
+            shape=(
+                self.max_connections
+                + self.num_cores
+                + self.max_connections
+                + 1
+                + self.max_caching,
+            ),
+        )
+
         self.mixed_frame_md_observation_space = spaces.MultiDiscrete(
             [self.max_weight]  # rsus: avg usage, default:5
             + [self.num_cores]  # rsus: avg handling jobs count, default:5
@@ -733,7 +787,8 @@ class Env(ParallelEnv):
         return observations, infos
 
     def step(self, actions):
-
+        # random
+        random.seed(self.seed + self.timestep)
         # take action
         self._beta_take_frame_actions(actions)
 
@@ -749,7 +804,7 @@ class Env(ParallelEnv):
             self._update_vehicles()
             # update connections queue, very important
             self._update_connections_queue()
-            # remove deprecated rsu connections remove deprecated jobs
+            # remove deprecated jobs
             self._update_rsus()
 
         # update observation space
@@ -784,12 +839,20 @@ class Env(ParallelEnv):
         # for rsu in self.rsus:
         #     rsu.update_conn_list()
 
+        # 更新所有rsu的handling_jobs，将无效的handling job移除（
+        # 例如veh已经离开地图，或者veh已经离开前一个rsu的范围，
+        # 这里需要给veh设置一个pre_rsu标识前一个rsu是谁）
         for rsu in self.rsus:
-            # update deprecated handling job
-            # maybe not necessary
-            for h_veh_id in rsu.handling_jobs:
-                pass
-
+            for veh in rsu.handling_jobs:
+                if veh is None:
+                    continue
+                veh: Vehicle
+                if (
+                    veh.vehicle_id not in self.vehicle_ids
+                    or veh.connected_rsu_id != veh.pre_connected_rsu_id
+                ):
+                    # 需不需要往前移？
+                    rsu.handling_jobs.remove_and_shift(elem=veh)
         # may not necessary
         # for rsu in self.rsus:
         #     rsu.job_clean()
@@ -1046,6 +1109,76 @@ class Env(ParallelEnv):
             + caching_action_mask
             + [1]
         )
+
+    def _beta_take_box_actions(self, actions):
+        """
+        # 1 * max_connections, 0.00-0.05 math.ceil(action * num_rsu) = real_rsu_id
+        # 1 * num_cores cp_alloc
+        # 1 * max_connections bw alloc
+        # 1   cp_usage
+        # 1 * max_caching caching choose, math.ceil(action * max_content)
+        self.box_action_space = spaces.Box(0.0, 1.0, shape=(self.max_connections + self.num_cores + self.num_cores + self.max_connections + self.max_caching, ))
+        """
+        # env 0
+        actions = actions[0]
+        frame = self.timestep % self.fps
+
+        # 更新所有rsu的handling_jobs，将无效的handling job移除（
+        # 例如veh已经离开地图，或者veh已经离开前一个rsu的范围，
+        # 这里需要给veh设置一个pre_rsu标识前一个rsu是谁）
+        # 该代码移动至update_rsus当且仅当sim step后更新
+
+        # 任务迁移逻辑
+        # migration first time or first time + 1?
+        # or just size() = 0?
+        # if frame == 0:
+
+        # 由于插入与否与顺序强相关，因此应该随机取顺序
+        # 目前是随机打乱 actions 的顺序，也可以用某种权重策略，
+        # 例如qoe高的、cpu利用率低的，带宽利用率低的等
+        # 甚至是让rsu的action自带权重
+        # 为解决这个问题，可以减少动作空间或者增加跳数惩罚
+
+        # 将 actions 和它们的原始索引组合成元组列表
+        indexed_actions = list(enumerate(actions))
+
+        random.shuffle(indexed_actions)
+
+        for idx, action in indexed_actions:
+            rsu = self.rsus[idx]
+            if rsu.connections_queue.size() == 0:
+                # 全部迁移完毕，无需迁移处理
+                continue
+            # migration action
+            m_actions = action[0 : self.max_connections]
+
+            for m_idx, m_action in enumerate(m_actions):
+                # do not need shift
+                veh_id = rsu.connections_queue.remove(m_idx)
+
+                if veh_id is not None and veh_id in self.vehicle_ids:
+                    veh: Vehicle = self.vehicles[veh_id]
+                    m_to_rsu_id = math.floor(m_action * self.num_rsus)
+                    # 不再使用特殊id标识自身，但是理论上收敛会困难，迁移给目标，但是不一定能迁移成功！
+                    # 假如迁移失败，是直接info给个bad_transition还是直接算云的qoe->直接算云的
+
+                    m_rsu: Rsu = self.rsus[m_to_rsu_id]
+                    if m_rsu.handling_jobs.size() >= m_rsu.handling_jobs.max_size:
+                        veh.job.processing_rsu_id == self.num_rsus
+                        veh.is_cloud = True
+                    else:
+                        veh.job.processing_rsu_id = m_to_rsu_id
+                        veh.is_cloud = False
+                        # 插入非None位置
+                        m_rsu.handling_jobs.append(veh)
+
+        # resource alloc
+        else:
+            pass
+        # independ caching policy here
+        if self.timestep % self.caching_step == 0:
+            a = action[5:]
+            rsu.frame_cache_content(a)
 
     def _beta_take_frame_actions(self, actions):
         # env 0
@@ -2025,7 +2158,15 @@ class Env(ParallelEnv):
                 )
                 idx = sorted_indices[0]
                 dis = distances[0]
-                veh.connected_rsu_id = idx
+
+                # connected
+                if veh.connected_rsu_id is not None:
+                    veh.pre_connected_rsu_id = veh.connected_rsu_id
+                    veh.connected_rsu_id = idx
+                else:
+                    veh.pre_connected_rsu_id = idx
+                    veh.connected_rsu_id = idx
+
                 veh.distance_to_rsu = dis
                 rsu = self.rsus[idx]
                 rsu.range_connections.append(veh.vehicle_id)
@@ -2225,7 +2366,7 @@ class Env(ParallelEnv):
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
-        return self.md_frame_combined_action_space
+        return self.box_neighbor_action_space
 
     # def get_agent_ids(self):
     #     return self._agent_ids

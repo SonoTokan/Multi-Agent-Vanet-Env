@@ -3,6 +3,7 @@ import os
 import pstats
 import sys
 
+import numpy as np
 from shapely import Point
 
 sys.path.append("./")
@@ -127,5 +128,14 @@ def sumo_env_test():
 
 if __name__ == "__main__":
     # cProfile.run("sumo_env_test()", sort="time")
-    sumo_env_test()
+    # sumo_env_test()
+    is_full = np.array([True, False, False])
+    is_in = np.array([False, True, False])
+    update_mask = is_full & is_in  # 需要更新的 RSU
+    store_mask = ~is_full & ~is_in  # 需要存入的 RSU
+    valid_mask = update_mask | store_mask
+    print(update_mask)
+    print(store_mask)
+    print(valid_mask)
+
     pass

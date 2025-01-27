@@ -800,15 +800,19 @@ class DummyVecEnv(ShareVecEnv):
 class ShareDummyVecEnv(ShareVecEnv):
     def __init__(self, env_fns):
         from onpolicy.utils.multi_discrete import MultiDiscrete
+        from gymnasium.spaces import Box
 
         self.envs = [fn() for fn in env_fns]
         env = self.envs[0]
+
+        warp_action_space = env.action_space("")
         # action can get high
-        nvec = env.action_space("").nvec - 1
-        zeros = np.zeros_like(nvec)
-        # 按列拼接
-        new_nvec = np.column_stack((zeros, nvec))
-        warp_action_space = MultiDiscrete(new_nvec)
+        if not isinstance(env.action_space(""), Box):
+            nvec = env.action_space("").nvec - 1
+            zeros = np.zeros_like(nvec)
+            # 按列拼接
+            new_nvec = np.column_stack((zeros, nvec))
+            warp_action_space = MultiDiscrete(new_nvec)
 
         ShareVecEnv.__init__(
             self,

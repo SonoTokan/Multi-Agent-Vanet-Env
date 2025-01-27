@@ -19,9 +19,12 @@ def cal_qoe(
     process_rsu_id,
     connect_rsu_id,
     rsu_network,
+    time_step,
     proc_veh_qoe_dict=None,
     rsu_qoe_dict=None,
+    fps=10,
 ):
+
     if proc_veh_qoe_dict is None:
         proc_veh_qoe_dict = {}
     if rsu_qoe_dict is None:
@@ -30,13 +33,14 @@ def cal_qoe(
     # 没有处理，connect_rsu_id应该必然有
     if process_rsu_id is None or connect_rsu_id is None:
         # 超过fps个时间步直接算qoe = 0，还是直接算0
-        veh.job.qoe = 0.0
-        # append
-        rsu_qoe_dict[connect_rsu_id] += [veh.job.qoe]
+        # veh.job.qoe = 0.0
+        # # append
+        # rsu_qoe_dict[connect_rsu_id] += [veh.job.qoe]
 
-        # if (time_step - veh.join_time) >= fps:
-        #     proc_qoe_dict[veh_ids] = 0.0
-        #     veh.job.qoe = 0.0
+        if (time_step - veh.join_time) >= fps * 2:
+            veh.job.qoe = 0.0
+            proc_veh_qoe_dict[veh.vehicle_id] = 0.0
+            rsu_qoe_dict[connect_rsu_id] += [veh.job.qoe]
 
     # 若有处理，云，本身，跳三种
     elif process_rsu_id == len(rsus):
@@ -97,6 +101,83 @@ def cal_qoe(
 
     return proc_veh_qoe_dict, rsu_qoe_dict
 
+# 严谨点的话应该每个rsu的veh qoe只进一次
+def calculate_box_utility(
+    vehs: Dict[str, Vehicle],
+    rsus: List[Rsu],
+    rsu_network,
+    time_step,
+    fps,
+    weight,
+    max_qoe=1.0,
+    int_utility=False,
+    max_connections=config.MAX_CONNECTIONS,
+    num_cores=config.NUM_CORES,
+):
+    rsu_utility_dict = defaultdict(list)
+    hop_penalty_rate = 0.2
+
+    # 观察reward用
+    if time_step >= 1000 and time_step % 1000 == 0:
+        time_step
+
+    # 由veh计算，
+    for v_id, veh in vehs.items():
+        veh: Vehicle
+
+        if veh.is_cloud:
+            qoe = max_qoe * 0.1
+            rsu_utility_dict[veh.connected_rsu_id].append(qoe)
+            veh.job.qoe = qoe
+            continue
+
+        trans_qoe = min(veh.data_rate, 40) / config.JOB_DR_REQUIRE
+
+        for p_rsu in veh.job.processing_rsus:
+
+            if p_rsu is not None:
+                p_rsu: Rsu
+                p_idx = p_rsu.handling_jobs.index((veh, 0))
+                process_qoe = (
+                    min(p_rsu.real_cp_alloc[p_idx] / p_rsu.handling_jobs[p_idx][1], 40)
+                    / config.JOB_CP_REQUIRE
+                )
+
+                trans_rsu: Rsu = rsus[veh.connected_rsu_id]
+
+                if p_rsu.id == veh.connected_rsu_id:
+                    qoe = min(process_qoe, trans_qoe)
+
+                    # caching debug
+                    if veh.job.job_type in trans_rsu.caching_contents:
+                        qoe = min(qoe + qoe * 0.2, 1)
+                    else:
+                        qoe = max(qoe - qoe * 0.05, 0)
+
+                    veh.job.qoe = qoe
+
+                    trans_rsu.ee = 0.3 * trans_rsu.cp_usage
+
+                    rsu_utility_dict[veh.connected_rsu_id].append(float(qoe * 0.7 + trans_rsu.ee))
+
+                else:
+                    qoe = min(process_qoe, trans_qoe)
+                    qoe = max(qoe - qoe * hop_penalty_rate, 0)
+
+                    if veh.job.job_type in rsus[veh.connected_rsu_id].caching_contents:
+                        qoe = min(qoe + qoe * 0.2, 1)
+                    else:
+                        qoe = max(qoe - qoe * 0.05, 0)
+
+                    veh.job.qoe = qoe
+
+                    p_rsu.ee = 0.3 * p_rsu.cp_usage
+                    trans_rsu.ee = 0.3 * trans_rsu.cp_usage
+                    # or give trans and process qoe spretely?
+                    rsu_utility_dict[veh.connected_rsu_id].append(float(qoe * 0.7 + trans_rsu.ee))
+                    rsu_utility_dict[p_rsu.id].append(float(qoe * 0.7 + p_rsu.ee))
+    return rsu_utility_dict
+
 
 # python 3.9 + can be dict[str, Vehicle], list[Rsu]
 def calculate_frame_utility(
@@ -112,6 +193,9 @@ def calculate_frame_utility(
     max_connections=config.MAX_CONNECTIONS,
     num_cores=config.NUM_CORES,
 ):
+    # 观察reward用
+    if time_step % 1000 == 0:
+        time_step
     frame = time_step % fps
     conn_index = frame % max_connections
     handle_index = frame % num_cores
@@ -130,13 +214,15 @@ def calculate_frame_utility(
             max_qoe,
             weight,
             hop_penalty_rate,
+            time_step=time_step,
+            fps=fps,
             process_rsu_id=veh.job.processing_rsu_id,
             connect_rsu_id=veh.connected_rsu_id,
             rsu_network=rsu_network,
         )
 
     # 计算其他veh的，但是由于rsu里handlingjob可能重复的原因，无法从rsu计算。因为veh不可能重复，所以可以计算veh的
-    # 这个不一定存在 
+    # 这个不一定存在
     # for veh_id, veh in vehs.items():
     #     # 跳过已计算
     #     if veh_id in proc_veh_set:

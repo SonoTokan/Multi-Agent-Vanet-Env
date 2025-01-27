@@ -1,3 +1,4 @@
+import math
 import random
 import sys
 from typing import List
@@ -35,7 +36,9 @@ class OrderedQueueList:
         Insert the element into the head of the queue
         for self job handling
         """
+        t = self.olist[-1]
         self.olist = [elem] + self.olist[:-1]
+        return t
         pass
 
     # Queuing
@@ -61,14 +64,44 @@ class OrderedQueueList:
         self.olist = self.olist[1:] + [None]
         return top
 
-    def remove(self, index=-1, elem=None):
+    def remove(self, elem=None, index=-1):
         if elem is not None:
-            self.remove(index=self.olist.index(elem))
+            self.remove(index=self.index(elem))
         else:
+            if index == None:
+                return None
+
             if 0 <= index < self.max_size:
+                t = self.olist[index]
                 self.olist[index] = None
+                return t
             else:
-                assert IndexError
+                assert IndexError("Index out of range")
+
+    def remove_and_shift(self, elem=None, index=-1):
+        """
+        better not use, shift may have some iter issue
+        """
+        if elem is not None:
+            self.remove_and_shift(index=self.index(elem))
+        else:
+            if index == None:
+                return None
+                assert IndexError("Index out of range")
+
+            if 0 <= index < self.max_size:
+                t = self.olist[index]
+
+                # 将 index 之后的元素向前移动
+                while index + 1 < self.max_size:
+                    self.olist[index] = self.olist[index + 1]
+                    index += 1
+
+                self.olist[self.max_size - 1] = None  # 最后一个位置设置为 None
+
+                return t
+            else:
+                assert IndexError("Index out of range")
 
     def to_list_replace_none(self):
         return [0 if x is None else x for x in self.olist]
@@ -76,13 +109,16 @@ class OrderedQueueList:
     def size(self):
         return sum(1 for elem in self.olist if elem is not None)
 
+    def is_full(self):
+        return self.size() >= self.max_size
+
     def is_empty(self):
-        """
-        may has bug, do not use
-        """
-        return all(elem is None for elem in self.olist)
+        return self.size() == 0
 
     def avg(self):
+        '''
+        bug
+        '''
         filtered_values = [v for v in self.olist if v is not None]
         if filtered_values:
             return self.sum() / len(filtered_values)
@@ -117,6 +153,14 @@ class OrderedQueueList:
 
     def __contains__(self, item):
         """支持 in 操作符"""
+        if isinstance(item, tuple):
+            # 找到第一个匹配 elem[0] 的元组的索引
+            for i, elem in enumerate(self.olist):
+                if isinstance(elem, tuple) and elem[0] == item[0]:
+                    return True
+
+            return False
+
         if isinstance(item, np.ndarray):  # 如果 item 是 NumPy 数组
             return any(np.array_equal(item, x) for x in self.olist if x is not None)
         else:  # 如果 item 是普通值
@@ -126,7 +170,35 @@ class OrderedQueueList:
         self.olist = [None] * self.max_size
 
     def index(self, elem):
+        if isinstance(elem, tuple):
+            # 找到第一个匹配 elem[0] 的元组的索引
+            for i, item in enumerate(self.olist):
+                if isinstance(item, tuple) and item[0] == elem[0]:
+                    return i
+            return None
+
         return self.olist.index(elem)
+
+
+# a = OrderedQueueList(5)
+# a.append((1, "a"))
+# a.append((2, "a"))
+# a.append((3, "a"))
+# a.append((4, "a"))
+# a.append((5, "a"))
+# a.remove_and_shift(elem=(2, 0))
+# a.remove_and_shift(elem=(4, 0))
+# # 不存在的话报错或者return none
+# a.remove_and_shift(elem=(6, 0))
+# a.remove(elem=(3, 1))
+# print(a)
+# b = OrderedQueueList(5)
+# b.append(0)
+# b.append(1)
+# b.append(2)
+# b.remove(2)
+# b.remove_and_shift(elem=0)
+# print(b)
 
 
 class Rsu:
@@ -174,8 +246,10 @@ class Rsu:
         self.handling_jobs = OrderedQueueList(max_cores)
         self.bw_alloc = OrderedQueueList(max_connections)
         self.computation_power_alloc = OrderedQueueList(max_cores)
+        self.real_cp_alloc = OrderedQueueList(max_cores)
         self.caching_contents = OrderedQueueList(caching_capacity)
-
+        
+        
         self.energy_efficiency = 0
 
         # cp_usage max is weight
@@ -196,8 +270,42 @@ class Rsu:
     def get_tx_power(self):
         return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
 
+    def remove_job(self, elem):
+        if isinstance(elem, tuple):
+            self.handling_jobs.remove(elem)
+        else:
+            self.handling_jobs.remove((elem, 0))
+            
+    def box_alloc_cp(self, alloc_cp_list, cp_usage):
+        # 0 - 1
+        self.cp_usage = cp_usage
+        self.computation_power_alloc.olist = list.copy(alloc_cp_list.tolist())
+        self.cp_norm = utils.normalize_array_np(self.computation_power_alloc.olist)
+        real_cp = self.computation_power * self.cp_usage
+        self.real_cp_alloc.olist = [real_cp * cp_n for cp_n in self.cp_norm]
+        pass
+    
+    def box_alloc_bw(self, alloc_bw_list, veh_ids):
+        self.bw_alloc.olist = list.copy(alloc_bw_list.tolist())
+        from vanet_env import network
+
+        self.bw_norm = utils.normalize_array_np(self.bw_alloc.olist)
+
+        for idx, veh in enumerate(self.connections):
+            veh: Vehicle
+            if veh is not None and veh.vehicle_id in veh_ids:
+                veh.data_rate = network.channel_capacity(
+                    self, veh, self.bw * self.bw_norm[idx] * self.bw_ratio
+                )
+        pass
+    
     def frame_allocate_computing_power(
-        self, alloc_index: int, cp_a: int, cp_usage: int, proc_veh_set: set["Vehicle"], veh_ids
+        self,
+        alloc_index: int,
+        cp_a: int,
+        cp_usage: int,
+        proc_veh_set: set["Vehicle"],
+        veh_ids,
     ):
         self.cp_usage = cp_usage
         self.computation_power_alloc.replace(cp_a, alloc_index)
@@ -206,12 +314,18 @@ class Rsu:
         if veh is not None and veh.vehicle_id in veh_ids:
             proc_veh_set.add(veh.vehicle_id)
 
-    def frame_cache_content(self, caching_decision: int):
+    def frame_cache_content(self, caching_decision, num_content):
+        caching_decision = math.floor(caching_decision * num_content) 
         self.caching_contents.queue_jumping(caching_decision)
 
     # notice, cal utility only when connect this rsu
     def frame_allocate_bandwidth(
-        self, alloc_index: int, bw_a: int, proc_veh_set: set["Vehicle"], veh_ids,bw_ratio=1
+        self,
+        alloc_index: int,
+        bw_a: int,
+        proc_veh_set: set["Vehicle"],
+        veh_ids,
+        bw_ratio=1,
     ):
         from vanet_env import network
 
@@ -409,7 +523,9 @@ class Job:
         # processed size # deprecated
         self.job_processed = 0
         # processing rsu
-        self.processing_rsu_id = config.NUM_RSU
+        self.is_cloud = False
+        # 3 can modify as nb num
+        self.processing_rsus = OrderedQueueList(3)
 
     # deprecated
     def done(self):
@@ -454,11 +570,33 @@ class Vehicle:
             self.angle = sumo.vehicle.getAngle(self.vehicle_id)
 
         self.is_cloud = False
+        # update these when update connection queue
         self.connected_rsu_id = None
+        # 前一步连接的rsu是谁？
+        self.pre_connected_rsu_id = None
+
         self.data_rate = 0
         self.distance_to_rsu = None
         # connected rsus, may not needed
         # self.connections = OrderedQueueList(max_connections)
+
+    def job_process(self, idx, rsu):
+        self.job.is_cloud = False
+        self.is_cloud = False
+        self.job.processing_rsus[idx] = rsu
+
+    def job_deprocess(self):
+        self.job.is_cloud = True
+        self.is_cloud = True
+
+        if not self.job.processing_rsus.is_empty():
+            for rsu in self.job.processing_rsus:
+                if rsu is None:
+                    continue
+                rsu: Rsu
+                rsu.remove_job(elem=self)
+
+        self.job.processing_rsus.clear()
 
     # only use from Connection.disconnect()
     def disconnect(self, conn):

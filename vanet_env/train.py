@@ -10,14 +10,12 @@ import numpy as np
 from pathlib import Path
 import torch
 
-from vanet_env.gym_env_sumo import Env
+from vanet_env.env_light import Env
 from vanet_env.onpolicy.config import get_config
 from vanet_env.onpolicy.envs.env_wrappers import (
     ShareSubprocVecEnv,
     ShareDummyVecEnv,
 )
-
-"""Train script for SMAC."""
 
 
 def make_train_env():
@@ -139,7 +137,7 @@ def main(args):
             notes=socket.gethostname(),
             name=str(all_args.algorithm_name)
             + "_"
-            + str(all_args.experiment_name)
+            + str("nb")
             + "_seed"
             + str(all_args.seed),
             group=all_args.map_name,

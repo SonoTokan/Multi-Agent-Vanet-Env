@@ -213,10 +213,11 @@ def get_config():
         default=1,
         help="Number of parallel envs for rendering rollouts",
     )
+    # 100 episode
     parser.add_argument(
         "--num_env_steps",
         type=int,
-        default=36e6,
+        default=36e5,
         help="Number of environment steps to train (default: 36e5)",
     )
     parser.add_argument(
