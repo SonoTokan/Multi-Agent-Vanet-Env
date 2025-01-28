@@ -131,7 +131,7 @@ class VANETRunner(Runner):
 
     def warmup(self):
         # reset env
-        obs, share_obs = self.envs.reset()
+        obs, share_obs, _ = self.envs.reset()
 
         # replay buffer
         if not self.use_centralized_V:

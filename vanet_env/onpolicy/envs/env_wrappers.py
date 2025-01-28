@@ -907,7 +907,10 @@ class ShareDummyVecEnv(ShareVecEnv):
 
         # obs, share_obs, available_actions = map(np.array, zip(*results))
 
-        return np.array([local_obs_array]), np.array([global_obs_array])
+        return (
+            np.array([local_obs_array]),
+            np.array([global_obs_array]),
+        )
 
     def close(self):
         for env in self.envs:

@@ -290,7 +290,7 @@ class Env(ParallelEnv):
 
         # step once
         # not sure need or not
-        self.sumo.simulationStep()
+        # self.sumo.simulationStep()
 
         self.vehicle_ids = self.sumo.vehicle.getIDList()
 
@@ -310,9 +310,13 @@ class Env(ParallelEnv):
 
         observations = self._beta_update_box_observations(-1)
 
+        self._update_all_rsus_idle()
+
+        terminations = {a: self.rsus[idx].idle for idx, a in enumerate(self.agents)}
+
         infos = {a: {} for a in self.agents}
 
-        return observations, infos
+        return observations, terminations, infos
 
     def step(self, actions):
         # random
@@ -342,6 +346,8 @@ class Env(ParallelEnv):
         truncations = {a: False for a in self.agents}
         infos = {}
 
+        self._update_all_rsus_idle()
+
         # self.sumo.simulation.getMinExpectedNumber() <= 0
         if self.timestep >= self.max_step:
             # bad transition means real terminal
@@ -351,16 +357,13 @@ class Env(ParallelEnv):
             self.sumo_has_init = False
         else:
             infos = {a: {"bad_transition": False} for a in self.agents}
-            terminations = {
-                a: self.rsus[idx].check_idle(self.rsus, self.rsu_network)
-                for idx, a in enumerate(self.agents)
-            }
+            terminations = {a: self.rsus[idx].idle for idx, a in enumerate(self.agents)}
 
         self.timestep += 1
 
         # if env not reset auto, reset before update env
         if not self.sumo_has_init:
-            observations, _ = self.reset()
+            observations, terminations, _ = self.reset()
 
         if self.render_mode == "human":
             self.render()
@@ -395,6 +398,20 @@ class Env(ParallelEnv):
         # for rsu in self.rsus:
         #     rsu.job_clean()
         ...
+
+    # check_idle的外层循环
+    def _update_all_rsus_idle(self):
+        # 第一阶段：收集所有 RSU 的邻居更新状态，并更新自身RSU状态
+        updates = {}
+        for rsu in self.rsus:
+            updates[rsu.id] = rsu.check_idle(self.rsus, self.rsu_network)
+            self.rsus[rsu.id].idle = updates[rsu.id]["self_idle"]
+
+        # 第二阶段：统一更新所有 RSU 的邻居状态，但不更新自己的状态
+        for rsu_id, update in updates.items():
+
+            for neighbor_id, idle_state in update["neighbors_idle"].items():
+                self.rsus[neighbor_id].idle = idle_state
 
     def _update_vehicles(self):
         current_vehicle_ids = set(self.sumo.vehicle.getIDList())
@@ -537,7 +554,9 @@ class Env(ParallelEnv):
                             # 假如veh被断开连接
                             if veh_disconnect is not None:
                                 veh_disconnect: Vehicle
-                                veh_disconnect.job_deprocess()
+                                veh_disconnect.job_deprocess(
+                                    self.rsus, self.rsu_network
+                                )
 
         # env 0
         actions = actions[0]

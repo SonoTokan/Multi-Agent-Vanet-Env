@@ -270,26 +270,24 @@ class Rsu:
         self.avg_u = 0
 
     def check_idle(self, rsus, rsu_network):
-        # 若存在job
-        if not self.handling_jobs.is_empty():
-            self.idle = False
-            # 若也可以迁移job，邻接rsu不能idle
-            if not self.connections_queue.is_empty():
-                for rsu_id in rsu_network[self.id]:
-                    rsus[rsu_id].idle = False
-            # for rsu_id in rsu_network[self.id]:
-            #     self.rsus[rsu_id].idle = False
-        elif not self.connections_queue.is_empty():
-            self.idle = False
+        # 第一阶段：计算当前 RSU 的 idle 状态，应用并且返回所有邻居应该的状态
+        should_idle = True
 
+        if not self.handling_jobs.is_empty() or not self.connections_queue.is_empty():
+            should_idle = False
+
+        if not self.connections.is_empty():
+            should_idle = False
+
+        # 只有在 connections_queue 不为空时，才更新邻接 RSU 的状态
+        neighbors_idle_updates = {}
+        if not self.connections_queue.is_empty():
             for rsu_id in rsu_network[self.id]:
-                rsus[rsu_id].idle = False
-        elif self.handling_jobs.is_empty() and self.connections_queue.is_empty():
-            self.idle = True
-        else:
-            assert NotImplementedError("why you here")
+                neighbors_idle_updates[rsu_id] = False
 
-        return self.idle
+        # 返回当前 RSU 的 idle 状态以及需要更新的邻接 RSU 状态
+        # 需要进一步处理
+        return {"self_idle": should_idle, "neighbors_idle": neighbors_idle_updates}
 
     def get_tx_power(self):
         return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
@@ -319,15 +317,11 @@ class Rsu:
         if utils.all_none(ava_alloc):
             return
 
-        sum_alloc = sum([a if a is not None else 0 for a in ava_alloc])
+        sum_alloc = np.sum([a if a is not None else 0 for a in ava_alloc])
 
         if sum_alloc != 0:
             self.cp_norm = [
-                (
-                    a * self.computation_power_alloc[a_idx] / sum_alloc
-                    if a is not None
-                    else 0
-                )
+                (a / sum_alloc if a is not None else 0)
                 for a_idx, a in enumerate(ava_alloc)
             ]
         else:
@@ -353,11 +347,11 @@ class Rsu:
         if utils.all_none(ava_alloc):
             return
 
-        sum_alloc = sum([a if a is not None else 0 for a in ava_alloc])
+        sum_alloc = np.sum([a if a is not None else 0 for a in ava_alloc])
 
         if sum_alloc != 0:
             self.bw_norm = [
-                a * self.bw_alloc[a_idx] / sum_alloc if a is not None else 0
+                a / sum_alloc if a is not None else 0
                 for a_idx, a in enumerate(ava_alloc)
             ]
         else:
