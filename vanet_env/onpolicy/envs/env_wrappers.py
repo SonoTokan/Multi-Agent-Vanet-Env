@@ -872,7 +872,7 @@ class ShareDummyVecEnv(ShareVecEnv):
 
         for r_keys in r_infos:
             # bad transition not conserned
-            infos.append({"bad_transition": False})
+            infos.append(r_infos[r_keys])
 
         # 不知道为什么rews少一维
         rews = np.array([rews])

@@ -340,7 +340,7 @@ class Env(ParallelEnv):
             elif rsu.handling_jobs.is_empty() and rsu.range_connections.is_empty():
                 infos[a] = {"bad_transition": True}
             else:
-                infos[a] = {"bad_transition": False}
+                infos[a] = {"bad_transition": True}
 
         self.timestep += 1
 

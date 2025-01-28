@@ -86,13 +86,16 @@ class ACTLayer(nn.Module):
             action_log_probs = torch.cat(action_log_probs, -1)
 
         else:
+            # action_logits = self.action_out(x)
+            # actions = action_logits.mode() if deterministic else action_logits.sample()
+            # # 不确定是不是放在这
+            # actions = (actions + 1) / 2  # 将 [-1, 1] 映射到 [0, 1]
+            # action_log_probs = action_logits.log_probs(actions)
+            
             action_logits = self.action_out(x)
-            actions = (
-                action_logits.mode()
-                if deterministic
-                else action_logits.clamped_sample()
-            )
+            actions = action_logits.mode() if deterministic else action_logits.clamped_sample()
             action_log_probs = action_logits.log_probs(actions)
+
 
         return actions, action_log_probs
 

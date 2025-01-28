@@ -475,7 +475,7 @@ def get_config():
     parser.add_argument(
         "--log_interval",
         type=int,
-        default=5,
+        default=1,
         help="time duration between contiunous twice log printing.",
     )
 

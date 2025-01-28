@@ -29,6 +29,34 @@ class FixedCategorical(torch.distributions.Categorical):
         return self.probs.argmax(dim=-1, keepdim=True)
 
 
+class SquashedNormal(torch.distributions.TransformedDistribution):
+    def __init__(self, loc, scale):
+        self.base_dist = torch.distributions.Normal(loc, scale)
+        transforms = [torch.distributions.transforms.TanhTransform(cache_size=1)]
+        super().__init__(self.base_dist, transforms)
+
+    def log_probs(self, value):
+        # 自动计算变换后的对数概率（含 Jacobian 校正）
+        return super().log_prob(value).sum(-1, keepdim=True)
+
+    def mode(self):
+        return self.mean
+
+    def entropy(self):
+        return self.base_dist.entropy().sum(-1)
+
+
+class FixedBeta(torch.distributions.Beta):
+    def mode(self):
+        return (self.concentration0 - 1) / (self.concentration0 + self.concentration1 - 2)
+
+    def log_probs(self, actions):
+        return super().log_prob(actions).sum(-1, keepdim=True)
+
+    def entropy(self):
+        return super().entropy().sum(-1)
+
+
 # Normal
 class FixedNormal(torch.distributions.Normal):
     def log_probs(self, actions):
@@ -76,6 +104,17 @@ class Categorical(nn.Module):
 
 class DiagGaussian(nn.Module):
     def __init__(self, num_inputs, num_outputs, use_orthogonal=True, gain=0.01):
+        # super(DiagGaussian, self).__init__()
+        # init_method = nn.init.orthogonal_ if use_orthogonal else nn.init.xavier_uniform_
+        
+        # def init_(m):
+        #     init_method(m.weight, gain=gain)
+        #     nn.init.constant_(m.bias, 0)
+        #     return m
+
+        # self.fc_mean = init_(nn.Linear(num_inputs, num_outputs))
+        # self.logstd = nn.Parameter(torch.zeros(num_outputs))
+        
         super(DiagGaussian, self).__init__()
 
         init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][use_orthogonal]
@@ -87,6 +126,20 @@ class DiagGaussian(nn.Module):
         self.logstd = AddBias(torch.zeros(num_outputs))
 
     def forward(self, x):
+        # action_mean = torch.sigmoid(self.fc_mean(x))  # 使用 Sigmoid 限制到 [0.0, 1.0]
+        # # action_mean = torch.tanh(self.fc_mean(x))  # 使用 Tanh 限制到 [-1.0, 1.0]
+        # # action_mean = (action_mean + 1) / 2  # 缩放到 [0.0, 1.0]
+        # # 原始：
+        # # action_mean = self.fc_mean(x)
+
+        # #  An ugly hack for my KFAC implementation.
+        # zeros = torch.zeros(action_mean.size())
+        # if x.is_cuda:
+        #     zeros = zeros.cuda()
+
+        # action_logstd = self.logstd(zeros)
+        
+        
         action_mean = torch.sigmoid(self.fc_mean(x))  # 使用 Sigmoid 限制到 [0.0, 1.0]
         # action_mean = torch.tanh(self.fc_mean(x))  # 使用 Tanh 限制到 [-1.0, 1.0]
         # action_mean = (action_mean + 1) / 2  # 缩放到 [0.0, 1.0]
@@ -100,6 +153,12 @@ class DiagGaussian(nn.Module):
 
         action_logstd = self.logstd(zeros)
         return FixedNormal(action_mean, action_logstd.exp())
+
+
+        
+        # action_mean = self.fc_mean(x)
+        # action_std = torch.exp(self.logstd)
+        # return SquashedNormal(action_mean, action_std)
 
 
 class Bernoulli(nn.Module):

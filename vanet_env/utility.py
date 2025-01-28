@@ -101,6 +101,7 @@ def cal_qoe(
 
     return proc_veh_qoe_dict, rsu_qoe_dict
 
+
 # 严谨点的话应该每个rsu的veh qoe只进一次
 def calculate_box_utility(
     vehs: Dict[str, Vehicle],
@@ -156,9 +157,11 @@ def calculate_box_utility(
 
                     veh.job.qoe = qoe
 
-                    trans_rsu.ee = 0.3 * trans_rsu.cp_usage
+                    trans_rsu.ee = 0.3 * (1 - trans_rsu.cp_usage)
 
-                    rsu_utility_dict[veh.connected_rsu_id].append(float(qoe * 0.7 + trans_rsu.ee))
+                    rsu_utility_dict[veh.connected_rsu_id].append(
+                        float(qoe * 0.7 + trans_rsu.ee)
+                    )
 
                 else:
                     qoe = min(process_qoe, trans_qoe)
@@ -171,10 +174,12 @@ def calculate_box_utility(
 
                     veh.job.qoe = qoe
 
-                    p_rsu.ee = 0.3 * p_rsu.cp_usage
-                    trans_rsu.ee = 0.3 * trans_rsu.cp_usage
+                    p_rsu.ee = 0.3 * (1 - p_rsu.cp_usage)
+                    trans_rsu.ee = 0.3 * (1 - trans_rsu.cp_usage)
                     # or give trans and process qoe spretely?
-                    rsu_utility_dict[veh.connected_rsu_id].append(float(qoe * 0.7 + trans_rsu.ee))
+                    rsu_utility_dict[veh.connected_rsu_id].append(
+                        float(qoe * 0.7 + trans_rsu.ee)
+                    )
                     rsu_utility_dict[p_rsu.id].append(float(qoe * 0.7 + p_rsu.ee))
     return rsu_utility_dict
 
