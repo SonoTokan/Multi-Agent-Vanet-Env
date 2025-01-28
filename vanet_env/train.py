@@ -17,8 +17,8 @@ from vanet_env.onpolicy.envs.env_wrappers import (
     ShareDummyVecEnv,
 )
 
-max_step = 3_600_000
-env_max_step = max_step // 100
+max_step = 3_600_0000
+env_max_step = max_step // 1000
 
 
 def make_train_env():

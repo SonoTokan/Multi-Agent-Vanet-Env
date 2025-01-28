@@ -269,6 +269,28 @@ class Rsu:
         self.qoe_list = []
         self.avg_u = 0
 
+    def check_idle(self, rsus, rsu_network):
+        # 若存在job
+        if not self.handling_jobs.is_empty():
+            self.idle = False
+            # 若也可以迁移job，邻接rsu不能idle
+            if not self.connections_queue.is_empty():
+                for rsu_id in rsu_network[self.id]:
+                    rsus[rsu_id].idle = False
+            # for rsu_id in rsu_network[self.id]:
+            #     self.rsus[rsu_id].idle = False
+        elif not self.connections_queue.is_empty():
+            self.idle = False
+
+            for rsu_id in rsu_network[self.id]:
+                rsus[rsu_id].idle = False
+        elif self.handling_jobs.is_empty() and self.connections_queue.is_empty():
+            self.idle = True
+        else:
+            assert NotImplementedError("why you here")
+
+        return self.idle
+
     def get_tx_power(self):
         return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
 
@@ -296,7 +318,7 @@ class Rsu:
         # improve performance
         if utils.all_none(ava_alloc):
             return
-        
+
         sum_alloc = sum([a if a is not None else 0 for a in ava_alloc])
 
         if sum_alloc != 0:
@@ -662,7 +684,7 @@ class Vehicle:
         self.is_cloud = False
         self.job.processing_rsus[idx] = rsu
 
-    def job_deprocess(self):
+    def job_deprocess(self, rsus, rsu_network):
         self.job.is_cloud = True
         self.is_cloud = True
 
@@ -672,6 +694,9 @@ class Vehicle:
                     continue
                 rsu: Rsu
                 rsu.remove_job(elem=self)
+                nb_id1, nb_id2 = rsu_network[rsu.id]
+                rsus[nb_id1].remove_job(elem=self)
+                rsus[nb_id2].remove_job(elem=self)
 
         self.job.processing_rsus.clear()
 

@@ -261,6 +261,20 @@ class Env(ParallelEnv):
         )
 
     def reset(self, seed=env_config.SEED, options=None):
+        self.timestep = 0
+
+        # reset rsus
+        self.rsus = [
+            Rsu(
+                id=i,
+                position=Point(env_config.RSU_POSITIONS[i]),
+                max_connections=self.max_connections,
+                max_cores=self.num_cores,
+            )
+            for i in range(self.num_rsus)
+        ]
+
+        # reset content
         if not self.content_loaded:
             self._content_init()
             self.content_loaded = True
@@ -269,10 +283,12 @@ class Env(ParallelEnv):
         random.seed(seed)
         self.seed = seed
 
+        # reset sumo
         if not self.sumo_has_init:
             self._sumo_init()
             self.sumo_has_init = True
 
+        # step once
         # not sure need or not
         self.sumo.simulationStep()
 
@@ -291,7 +307,6 @@ class Env(ParallelEnv):
         self._update_connections_queue()
 
         self.agents = list.copy(self.possible_agents)
-        self.timestep = 0
 
         observations = self._beta_update_box_observations(-1)
 
@@ -327,46 +342,28 @@ class Env(ParallelEnv):
         truncations = {a: False for a in self.agents}
         infos = {}
 
-        for idx, a in enumerate(self.agents):
-            rsu = self.rsus[idx]
-            # deprecated
-            if rewards[a] > 0:
-                infos[a] = {"reward_mask": False}
-            elif rsu.handling_jobs.is_empty() and rsu.range_connections.is_empty():
-                infos[a] = {"reward_mask": True}
-            else:
-                infos[a] = {"reward_mask": True}
-            # 当前范围内有connections或handling jobs的才active，
-            # 还有没有其他情况？
-            # connections呢？理论上来说range没有connections也没有
-            if not rsu.handling_jobs.is_empty() or not rsu.range_connections.is_empty():
-                infos[a] = {"active_mask": True}
-                rsu.idle = False
-                for rsu_id in self.rsu_network[rsu.id]:
-                    self.rsus[rsu_id].idle = False
-            # 当且仅当范围内没有车辆且没有handling jobs
-            else:
-                infos[a] = {"active_mask": False}
-                rsu.idle = True
-
         # self.sumo.simulation.getMinExpectedNumber() <= 0
         if self.timestep >= self.max_step:
+            # bad transition means real terminal
             terminations = {a: True for a in self.agents}
             infos = {a: {"bad_transition": True} for a in self.agents}
             self.sumo.close()
             self.sumo_has_init = False
         else:
             infos = {a: {"bad_transition": False} for a in self.agents}
-            terminations = {a: self.rsus[idx].idle for idx, a in enumerate(self.agents)}
+            terminations = {
+                a: self.rsus[idx].check_idle(self.rsus, self.rsu_network)
+                for idx, a in enumerate(self.agents)
+            }
 
         self.timestep += 1
 
+        # if env not reset auto, reset before update env
+        if not self.sumo_has_init:
+            observations, _ = self.reset()
+
         if self.render_mode == "human":
             self.render()
-
-        # if env not reset auto
-        if not self.sumo_has_init:
-            self.reset()
 
         return observations, rewards, terminations, truncations, infos
 
@@ -392,10 +389,8 @@ class Env(ParallelEnv):
                 ):
                     # 需不需要往前移（最好不要）？以及邻居是否也要移除该veh
                     rsu.remove_job(elem=veh)
-                    nb_id1, nb_id2 = self.rsu_network[rsu.id]
-                    self.rsus[nb_id1].remove_job(elem=veh)
-                    self.rsus[nb_id2].remove_job(elem=veh)
-                    veh.job_deprocess()
+
+                    veh.job_deprocess(self.rsus, self.rsu_network)
         # may not necessary
         # for rsu in self.rsus:
         #     rsu.job_clean()
@@ -736,11 +731,13 @@ class Env(ParallelEnv):
         for rsu in self.rsus:
             rsu.connections_queue.olist = list.copy(rsu.range_connections.olist)
             # disconnect out of range jobs
+            # connections里是object，range_connections是id
             for veh in rsu.connections:
                 if veh is None:
                     continue
+                veh: Vehicle
 
-                if veh not in rsu.range_connections:
+                if veh.vehicle_id not in rsu.range_connections:
                     # 最好不要shift因为shift会导致遍历问题
                     rsu.connections.remove(veh)
 
