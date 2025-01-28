@@ -1,4 +1,7 @@
 # Vanet-Env-For-Metaverse
-This project aims to explore and develop advanced algorithms for multi-agent collaboration using the Transformer architecture. The goal is to enable multiple intelligent agents to work together effectively, predict task outcomes, and seamlessly migrate tasks between agents to optimize performance and resource allocation.
+
+![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Version](https://img.shields.io/badge/version-1.0.0-blue) 
+
+This project aims to create multi vanet env
 
 [简体中文](README_CN.md)
