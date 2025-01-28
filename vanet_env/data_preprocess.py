@@ -4,10 +4,10 @@ sys.path.append("./")
 import os
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-from vanet_env import config
+from vanet_env import env_config
 
 
-def summnet_preprocess(num_content=config.NUM_CONTENT):
+def summnet_preprocess(num_content=env_config.NUM_CONTENT):
     path = os.path.join(os.path.dirname(__file__), "data", "SMMnet", "course-meta.csv")
 
     df = pd.read_csv(path, sep="\\t")

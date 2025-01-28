@@ -4,7 +4,7 @@ import sys
 from shapely import Point
 
 sys.path.append("./")
-from vanet_env import config
+from vanet_env import env_config
 from vanet_env.entites import Rsu, CustomVehicle, Vehicle
 from vanet_env import utils
 import numpy as np
@@ -71,16 +71,20 @@ class OkumuraHata:
         if city_type == "large":
             if rsu.frequency <= 200:
                 a_hm = (
-                    8.29 * (np.log10(1.54 * config.VEHICLE_ANTENNA_HEIGHT)) ** 2 - 1.1
+                    8.29 * (np.log10(1.54 * env_config.VEHICLE_ANTENNA_HEIGHT)) ** 2
+                    - 1.1
                 )
             else:
                 a_hm = (
-                    3.2 * (np.log10(11.75 * config.VEHICLE_ANTENNA_HEIGHT)) ** 2 - 4.97
+                    3.2 * (np.log10(11.75 * env_config.VEHICLE_ANTENNA_HEIGHT)) ** 2
+                    - 4.97
                 )
         else:
             a_hm = (
                 1.1 * np.log10(rsu.frequency) - 0.7
-            ) * config.VEHICLE_ANTENNA_HEIGHT - (1.56 * np.log10(rsu.frequency) - 0.8)
+            ) * env_config.VEHICLE_ANTENNA_HEIGHT - (
+                1.56 * np.log10(rsu.frequency) - 0.8
+            )
 
         term1 = (
             path_loss
@@ -100,12 +104,12 @@ class OkumuraHata:
 #  A common path loss model is the log-distance path loss model:
 # PL(d) = PL(d_0) + 10nlog_10(d/d_0)
 def path_loss(distance):
-    d_0 = config.RSU_REFERENCE_DISTANCE
+    d_0 = env_config.RSU_REFERENCE_DISTANCE
 
     if distance <= d_0:
-        return config.RSU_PATH_LOSS_REFERENCE_DISTANCE
+        return env_config.RSU_PATH_LOSS_REFERENCE_DISTANCE
 
-    return path_loss(d_0) + 10 * config.RSU_PATH_LOSS_EXPONENT * np.log10(
+    return path_loss(d_0) + 10 * env_config.RSU_PATH_LOSS_EXPONENT * np.log10(
         distance / d_0
     )
 
@@ -115,7 +119,7 @@ class WinnerB1:
     def __init__(
         self,
         building_height=20,
-        street_width=config.ROAD_WIDTH,
+        street_width=env_config.ROAD_WIDTH,
         building_separation=50,
         street_orientation=30,
     ):
@@ -180,7 +184,7 @@ class WinnerB1:
     def breakpoint_distance(self, h_BS, h_MS, fc_hz):
         h_BS_eff = h_BS - 1.0
         h_MS_eff = h_MS - 1.0
-        d_BP = (4 * h_BS_eff * h_MS_eff * fc_hz) / config.C
+        d_BP = (4 * h_BS_eff * h_MS_eff * fc_hz) / env_config.C
         return d_BP
 
     """
@@ -281,7 +285,7 @@ class WinnerB1:
 # P_r = P_t - PL(d)
 # SNR = P_r / N
 # P_r need to convert to watt
-def snr(rsu: Rsu, vh: Vehicle, path_loss_func="winner_b1"):
+def snr(rsu: Rsu, vh: Vehicle, distance=None, path_loss_func="winner_b1"):
     # noise_power = dbm_to_watt(rsu.noise_power)
     # return (
     #     dbm_to_watt(rsu.transmitted_power - okumura_hata_path_loss(rsu, vh))
@@ -289,7 +293,14 @@ def snr(rsu: Rsu, vh: Vehicle, path_loss_func="winner_b1"):
     # )
 
     if path_loss_func == "winner_b1":
-        d1, d2 = rsu.get_d1_d2(vh.get_position(), vh.get_angle())
+
+        if distance is not None:
+            d1 = 10
+            d1 = min(d1, distance)
+            d2 = np.sqrt(distance**2 - d1**2)
+            d2 = min(d2, distance)
+        else:
+            d1, d2 = rsu.get_d1_d2(vh.get_position(), vh.get_angle())
         # dev tag: need minus gain
         # EIRP（Effective Isotropic Radiated Power)
         path_loss = WinnerB1().path_loss_nlos(
@@ -325,7 +336,7 @@ def max_distance(rsu: Rsu):
     return max_distance
 
 
-def max_distance_mbps(rsu: Rsu, rate_tr=config.DATA_RATE_TR):
+def max_distance_mbps(rsu: Rsu, rate_tr=env_config.DATA_RATE_TR):
     max_distance = 0
     step = 1  # m
     distance = step
@@ -434,6 +445,9 @@ def find_hops(start_rsu, target_rsu, rsu_network):
 # ofdm+mimo single channel
 # Calculate data rate:
 # C=Blog2​(1+SNR)
-def channel_capacity(rsu: Rsu, vh: Vehicle, bw=config.RSU_MAX_TRANSMITTED_BANDWIDTH):
-
+def channel_capacity(
+    rsu: Rsu, vh: Vehicle, distance=None, bw=env_config.RSU_MAX_TRANSMITTED_BANDWIDTH
+):
+    if distance is not None:
+        return bpsToMbps(bw * np.log2(1 + snr(rsu, vh, distance)))
     return bpsToMbps(bw * np.log2(1 + snr(rsu, vh)))

@@ -10,7 +10,7 @@ sys.path.append("./")
 
 import cProfile
 from pettingzoo.test import parallel_api_test
-from vanet_env.gym_env_sumo import Env
+from deprecated.gym_env_sumo import Env
 from vanet_env.entites import Rsu, CustomVehicle
 from vanet_env import utils
 from vanet_env import network

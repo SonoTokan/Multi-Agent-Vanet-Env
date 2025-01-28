@@ -1,9 +1,9 @@
+from deprecated import gym_env_sumo
+from vanet_env import env_config
 from vanet_env import (
     caching,
-    config,
     data_preprocess,
     entites,
-    gym_env_sumo,
     network,
     test,
     utility,
@@ -15,7 +15,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "caching",
-    "config",
+    "env_config",
     "data_preprocess",
     "entites",
     "gym_env_sumo",

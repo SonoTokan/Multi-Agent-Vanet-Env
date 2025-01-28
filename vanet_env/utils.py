@@ -1,7 +1,7 @@
 import sys
 
 sys.path.append("./")
-from vanet_env import config
+from vanet_env import env_config
 import numpy as np
 import matplotlib as mpl
 from svgpathtools import svg2paths
@@ -153,12 +153,12 @@ RSU_MARKER = RSU_MARKER.transformed(mpl.transforms.Affine2D().scale(-1, 1))
 
 # canva distance to real distance
 def distance_to_real_distance(distance):
-    return distance / (1000 / config.COORDINATE_UNIT)
+    return distance / (1000 / env_config.COORDINATE_UNIT)
 
 
 # real distance to canva distance
 def real_distance_to_distance(real_distance):
-    return real_distance * (1000 / config.COORDINATE_UNIT)
+    return real_distance * (1000 / env_config.COORDINATE_UNIT)
 
 
 # detect sumo env
@@ -225,6 +225,13 @@ def is_empty(list_in):
 def test():
     if [None]:
         print(is_empty([]), is_empty([None] * 2))
+
+
+def all_none(arr):
+    for a in arr:
+        if a is not None:
+            return False
+    return True
 
 
 def normalize_array_np(arr):

@@ -78,7 +78,7 @@ def parse_args(args, parser):
 
 
 def main(args):
-    from vanet_env.config import SEED
+    from env_config import SEED
 
     n_training_threads = 1
     cuda_deterministic = False

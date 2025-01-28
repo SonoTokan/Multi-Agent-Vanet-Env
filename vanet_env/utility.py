@@ -1,4 +1,5 @@
 from collections import defaultdict
+from itertools import chain
 import sys
 from typing import Dict, List
 
@@ -6,8 +7,9 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 sys.path.append("./")
+from vanet_env import env_config
 from vanet_env.entites import Rsu, Vehicle, OrderedQueueList
-from vanet_env import network, config, utils
+from vanet_env import network, utils
 
 
 def cal_qoe(
@@ -62,8 +64,8 @@ def cal_qoe(
             / weight
         )
 
-        process_qoe = veh.data_rate / config.JOB_DR_REQUIRE
-        trans_qoe = cp / config.JOB_CP_REQUIRE
+        process_qoe = veh.data_rate / env_config.JOB_DR_REQUIRE
+        trans_qoe = cp / env_config.JOB_CP_REQUIRE
 
         veh.job.qoe = min(process_qoe, trans_qoe)
         # append
@@ -83,8 +85,8 @@ def cal_qoe(
             / weight
         )
 
-        process_qoe = veh.data_rate / config.JOB_DR_REQUIRE
-        trans_qoe = cp / config.JOB_CP_REQUIRE
+        process_qoe = veh.data_rate / env_config.JOB_DR_REQUIRE
+        trans_qoe = cp / env_config.JOB_CP_REQUIRE
 
         qoe = min(process_qoe, trans_qoe)
 
@@ -112,11 +114,13 @@ def calculate_box_utility(
     weight,
     max_qoe=1.0,
     int_utility=False,
-    max_connections=config.MAX_CONNECTIONS,
-    num_cores=config.NUM_CORES,
+    max_connections=env_config.MAX_CONNECTIONS,
+    num_cores=env_config.NUM_CORES,
 ):
     rsu_utility_dict = defaultdict(list)
     hop_penalty_rate = 0.2
+    max_ee = 0.1
+    qoe_factor = 1 - max_ee
 
     # 观察reward用
     if time_step >= 1000 and time_step % 1000 == 0:
@@ -132,16 +136,20 @@ def calculate_box_utility(
             veh.job.qoe = qoe
             continue
 
-        trans_qoe = min(veh.data_rate, 40) / config.JOB_DR_REQUIRE
+        trans_qoe = min(veh.data_rate, env_config.JOB_DR_REQUIRE) / env_config.JOB_DR_REQUIRE
+        # n者的process qoe除以n
+        rsu_trans_qoe_dict = defaultdict(list)
+        rsu_proc_qoe_dict = defaultdict(list)
 
+        # 一般是邻居
         for p_rsu in veh.job.processing_rsus:
 
             if p_rsu is not None:
                 p_rsu: Rsu
                 p_idx = p_rsu.handling_jobs.index((veh, 0))
                 process_qoe = (
-                    min(p_rsu.real_cp_alloc[p_idx] / p_rsu.handling_jobs[p_idx][1], 40)
-                    / config.JOB_CP_REQUIRE
+                    min(p_rsu.real_cp_alloc[p_idx] / p_rsu.handling_jobs[p_idx][1], env_config.JOB_CP_REQUIRE)
+                    / env_config.JOB_CP_REQUIRE
                 )
 
                 trans_rsu: Rsu = rsus[veh.connected_rsu_id]
@@ -157,10 +165,17 @@ def calculate_box_utility(
 
                     veh.job.qoe = qoe
 
-                    trans_rsu.ee = 0.3 * (1 - trans_rsu.cp_usage)
+                    trans_rsu.ee = max_ee * (1 - trans_rsu.cp_usage)
 
-                    rsu_utility_dict[veh.connected_rsu_id].append(
-                        float(qoe * 0.7 + trans_rsu.ee)
+                    # rsu_utility_dict[veh.connected_rsu_id].append(
+                    #     float(qoe * qoe_factor + trans_rsu.ee)
+                    # )
+                    rsu_trans_qoe_dict[veh.connected_rsu_id].append(
+                        float(qoe * qoe_factor + trans_rsu.ee)
+                    )
+
+                    rsu_proc_qoe_dict[p_rsu.id].append(
+                        float(qoe * qoe_factor + trans_rsu.ee)
                     )
 
                 else:
@@ -174,13 +189,44 @@ def calculate_box_utility(
 
                     veh.job.qoe = qoe
 
-                    p_rsu.ee = 0.3 * (1 - p_rsu.cp_usage)
-                    trans_rsu.ee = 0.3 * (1 - trans_rsu.cp_usage)
-                    # or give trans and process qoe spretely?
-                    rsu_utility_dict[veh.connected_rsu_id].append(
-                        float(qoe * 0.7 + trans_rsu.ee)
+                    p_rsu.ee = max_ee * (1 - p_rsu.cp_usage)
+                    trans_rsu.ee = max_ee * (1 - trans_rsu.cp_usage)
+
+                    rsu_trans_qoe_dict[veh.connected_rsu_id].append(
+                        float(qoe * qoe_factor + trans_rsu.ee)
                     )
-                    rsu_utility_dict[p_rsu.id].append(float(qoe * 0.7 + p_rsu.ee))
+
+                    rsu_proc_qoe_dict[p_rsu.id].append(
+                        float(qoe * qoe_factor + trans_rsu.ee)
+                    )
+                    # or give trans and process qoe spretely?
+                    # rsu_utility_dict[veh.connected_rsu_id].append(
+                    #     float(qoe * qoe_factor + trans_rsu.ee)
+                    # )
+                    # rsu_utility_dict[p_rsu.id].append(
+                    #     float(qoe * qoe_factor + p_rsu.ee)
+                    # )
+
+        # 计算被处理proc rsu的 avg qoe
+        num_proc_rus = len(rsu_proc_qoe_dict.keys())
+        # 没有进入if-else
+        if num_proc_rus == 0:
+            continue
+        else:
+            # 展平
+            flattened_values = list(chain.from_iterable(rsu_proc_qoe_dict.values()))
+            sum_qoes = np.sum(flattened_values)
+            avg_qoe = sum_qoes / num_proc_rus
+
+            for rsu_id, qoes in rsu_proc_qoe_dict.items():
+                if rsu_id == trans_rsu.id:
+                    # 这个trans_rsu id理论上必有，且理论上必是这三个proc中的一个，重复会稀释，需要检查吗
+                    rsu_utility_dict[trans_rsu.id].append(avg_qoe)
+                    # 不重复导入
+                else:
+                    rsu_utility_dict[rsu_id].append(avg_qoe)
+            # 将proc rsu的 avg qoe导入trans rsu
+
     return rsu_utility_dict
 
 
@@ -195,8 +241,8 @@ def calculate_frame_utility(
     weight,
     max_qoe=1.0,
     int_utility=False,
-    max_connections=config.MAX_CONNECTIONS,
-    num_cores=config.NUM_CORES,
+    max_connections=env_config.MAX_CONNECTIONS,
+    num_cores=env_config.NUM_CORES,
 ):
     # 观察reward用
     if time_step % 1000 == 0:
@@ -265,8 +311,8 @@ def calculate_beta_utility(
     hop_penalty_rate = 0.04
     # qoe = min(process_qoe, data_trans_qoe)
     # shape (5, 20)
-    process_qoes = np.zeros((len(rsus), config.NUM_CORES))
-    data_trans_qoes = np.zeros((len(rsus), config.MAX_CONNECTIONS))
+    process_qoes = np.zeros((len(rsus), env_config.NUM_CORES))
+    data_trans_qoes = np.zeros((len(rsus), env_config.MAX_CONNECTIONS))
 
     # 方法1遍历Rsu计算所有QoE
     # 方法2遍历Vehicle计算所有QoE
@@ -291,8 +337,8 @@ def calculate_beta_utility(
                 / weight
             )
 
-            process_qoe = veh.data_rate / config.JOB_DR_REQUIRE
-            trans_qoe = cp / config.JOB_CP_REQUIRE
+            process_qoe = veh.data_rate / env_config.JOB_DR_REQUIRE
+            trans_qoe = cp / env_config.JOB_CP_REQUIRE
 
             process_qoes[veh.job.processing_rsu_id][index_in_proc_rsu] = process_qoe
             data_trans_qoes[veh.job.processing_rsu_id][index_in_trans_rsu] = process_qoe
@@ -394,10 +440,10 @@ def calculate_utility_all_optimized(
 
             # 计算核心指标（使用预存值）
             cp = cp_base * process_rsu.cp_norm[alloc_idx]
-            dr = min(c.data_rate, config.JOB_DR_REQUIRE)  # 简化条件判断
+            dr = min(c.data_rate, env_config.JOB_DR_REQUIRE)  # 简化条件判断
 
             # QoE 计算（使用预存系数）
-            qoe = min((dr / config.JOB_DR_REQUIRE), cp / config.JOB_CP_REQUIRE)
+            qoe = min((dr / env_config.JOB_DR_REQUIRE), cp / env_config.JOB_CP_REQUIRE)
 
             # 跨节点惩罚
             if process_rsu_id != conn_rsu.id:
@@ -440,11 +486,11 @@ def calculate_utility_all_optimized(
             #     continue
 
             # 计算核心指标
-            dr = min(hconn.data_rate, config.JOB_DR_REQUIRE)
+            dr = min(hconn.data_rate, env_config.JOB_DR_REQUIRE)
             cp = cp_max * rsu.cp_norm[idx]
 
             # QoE 计算，符合水桶效应
-            qoe = min((dr / config.JOB_DR_REQUIRE), cp / config.JOB_CP_REQUIRE)
+            qoe = min((dr / env_config.JOB_DR_REQUIRE), cp / env_config.JOB_CP_REQUIRE)
             # 跨节点惩罚
             if hconn.rsu.id != rsu.id:
                 hop = hop_cache.get((rsu.id, hconn.rsu.id), 0)
@@ -534,11 +580,15 @@ def calculate_utility_all(
                 cp = cp_max * process_rsu.cp_norm[alloc_index]
 
                 dr = c.data_rate
-                dr = config.JOB_DR_REQUIRE if dr >= config.JOB_DR_REQUIRE else dr
+                dr = (
+                    env_config.JOB_DR_REQUIRE if dr >= env_config.JOB_DR_REQUIRE else dr
+                )
 
                 qoe = max_qoe / 2 * (
-                    config.JOB_DR_REQUIRE - dr / config.JOB_DR_REQUIRE
-                ) + max_qoe / 2 * (config.JOB_CP_REQUIRE - cp / config.JOB_CP_REQUIRE)
+                    env_config.JOB_DR_REQUIRE - dr / env_config.JOB_DR_REQUIRE
+                ) + max_qoe / 2 * (
+                    env_config.JOB_CP_REQUIRE - cp / env_config.JOB_CP_REQUIRE
+                )
 
                 # not self process
                 if process_rsu_id != conn_rsu_id:
@@ -571,7 +621,7 @@ def calculate_utility_all(
                 continue
             cp = cp_max * rsu.cp_norm[idx]
             dr = hconn.data_rate
-            dr = config.JOB_DR_REQUIRE if dr >= config.JOB_DR_REQUIRE else dr
+            dr = env_config.JOB_DR_REQUIRE if dr >= env_config.JOB_DR_REQUIRE else dr
             # dev tag: 云的算力是否设为不同
             # 云固定延迟、码率，且不用计算cp_alloc、bw_alloc
             if hconn.is_cloud:
@@ -586,16 +636,20 @@ def calculate_utility_all(
                 hop = network.find_hops(rsu.id, hconn.rsu.id, rsu_network)
                 # 每距离标准码率和标准计算能力差多少就减多少qoe的百分比
                 qoe = max_qoe / 2 * (
-                    config.JOB_DR_REQUIRE - dr / config.JOB_DR_REQUIRE
-                ) + max_qoe / 2 * (config.JOB_CP_REQUIRE - cp / config.JOB_CP_REQUIRE)
+                    env_config.JOB_DR_REQUIRE - dr / env_config.JOB_DR_REQUIRE
+                ) + max_qoe / 2 * (
+                    env_config.JOB_CP_REQUIRE - cp / env_config.JOB_CP_REQUIRE
+                )
 
                 # 每个hop - 2%的qoe
                 qoe -= hop * 0.04 * (qoe)
             else:
 
                 qoe = max_qoe / 2 * (
-                    config.JOB_DR_REQUIRE - dr / config.JOB_DR_REQUIRE
-                ) + max_qoe / 2 * (config.JOB_CP_REQUIRE - cp / config.JOB_CP_REQUIRE)
+                    env_config.JOB_DR_REQUIRE - dr / env_config.JOB_DR_REQUIRE
+                ) + max_qoe / 2 * (
+                    env_config.JOB_CP_REQUIRE - cp / env_config.JOB_CP_REQUIRE
+                )
 
             # dev tag: check job_type and caching_content is index
             if not hconn.is_cloud and hconn.veh.job.job_type not in caching_contents:
@@ -646,7 +700,7 @@ def calculate_utility(rsu: Rsu, rsu_network):
             continue
         cp = cp_max * rsu.cp_norm[idx]
         dr = hconn.data_rate
-        dr = config.JOB_DR_REQUIRE if dr >= config.JOB_DR_REQUIRE else dr
+        dr = env_config.JOB_DR_REQUIRE if dr >= env_config.JOB_DR_REQUIRE else dr
         # dev tag: 云的算力是否设为不同
         # 云固定延迟、码率，且不用计算cp_alloc、bw_alloc
         if hconn.is_cloud:
@@ -661,16 +715,20 @@ def calculate_utility(rsu: Rsu, rsu_network):
             hop = network.find_hops(rsu.id, hconn.rsu.id, rsu_network)
             # 每距离标准码率和标准计算能力差多少就减多少qoe的百分比
             qoe = max_qoe / 2 * (
-                config.JOB_DR_REQUIRE - dr / config.JOB_DR_REQUIRE
-            ) + max_qoe / 2 * (config.JOB_CP_REQUIRE - cp / config.JOB_CP_REQUIRE)
+                env_config.JOB_DR_REQUIRE - dr / env_config.JOB_DR_REQUIRE
+            ) + max_qoe / 2 * (
+                env_config.JOB_CP_REQUIRE - cp / env_config.JOB_CP_REQUIRE
+            )
 
             # 每个hop - 2%的qoe
             qoe -= hop * 0.02 * (qoe)
         else:
 
             qoe = max_qoe / 2 * (
-                config.JOB_DR_REQUIRE - dr / config.JOB_DR_REQUIRE
-            ) + max_qoe / 2 * (config.JOB_CP_REQUIRE - cp / config.JOB_CP_REQUIRE)
+                env_config.JOB_DR_REQUIRE - dr / env_config.JOB_DR_REQUIRE
+            ) + max_qoe / 2 * (
+                env_config.JOB_CP_REQUIRE - cp / env_config.JOB_CP_REQUIRE
+            )
             ...
 
         # dev tag: check job_type and caching_content is index

@@ -4,7 +4,7 @@ import os
 sys.path.append("./")
 
 from distutils.util import strtobool
-from vanet_env.gym_env_sumo import Env
+from deprecated.gym_env_sumo import Env
 
 import gymnasium as gym
 import numpy as np

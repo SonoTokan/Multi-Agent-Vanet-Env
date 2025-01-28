@@ -5,12 +5,13 @@ from typing import List
 
 from shapely import Point
 
+from vanet_env import env_config
 import traci
 
 sys.path.append("./")
 
 import numpy as np
-from vanet_env import config, utils
+from vanet_env import utils
 
 
 # rectange, unit (meters)
@@ -116,9 +117,9 @@ class OrderedQueueList:
         return self.size() == 0
 
     def avg(self):
-        '''
+        """
         bug
-        '''
+        """
         filtered_values = [v for v in self.olist if v is not None]
         if filtered_values:
             return self.sum() / len(filtered_values)
@@ -206,18 +207,18 @@ class Rsu:
         self,
         id,
         position: Point,
-        bw=config.RSU_MAX_TRANSMITTED_BANDWIDTH,
-        frequency=config.RSU_FREQUENCY,
-        transmitted_power=config.RSU_TRANSMITTED_POWER,
-        height=config.RSU_ANTENNA_HEIGHT,
-        noise_power=config.RSU_NOISE_POWER,
-        snr_threshold=config.RSU_SNR_THRESHOLD,
-        computation_power=config.RSU_COMPUTATION_POWER,
-        caching_capacity=config.RSU_CACHING_CAPACITY,
-        num_atn=config.RSU_NUM_ANTENNA,
-        tx_gain=config.ANTENNA_GAIN,
-        max_connections=config.MAX_CONNECTIONS,
-        max_cores=config.NUM_CORES,
+        bw=env_config.RSU_MAX_TRANSMITTED_BANDWIDTH,
+        frequency=env_config.RSU_FREQUENCY,
+        transmitted_power=env_config.RSU_TRANSMITTED_POWER,
+        height=env_config.RSU_ANTENNA_HEIGHT,
+        noise_power=env_config.RSU_NOISE_POWER,
+        snr_threshold=env_config.RSU_SNR_THRESHOLD,
+        computation_power=env_config.RSU_COMPUTATION_POWER,
+        caching_capacity=env_config.RSU_CACHING_CAPACITY,
+        num_atn=env_config.RSU_NUM_ANTENNA,
+        tx_gain=env_config.ANTENNA_GAIN,
+        max_connections=env_config.MAX_CONNECTIONS,
+        max_cores=env_config.NUM_CORES,
     ):
         # args
         self.id = id
@@ -248,8 +249,7 @@ class Rsu:
         self.computation_power_alloc = OrderedQueueList(max_cores)
         self.real_cp_alloc = OrderedQueueList(max_cores)
         self.caching_contents = OrderedQueueList(caching_capacity)
-        
-        
+
         self.energy_efficiency = 0
 
         # cp_usage max is weight
@@ -275,30 +275,82 @@ class Rsu:
             self.handling_jobs.remove(elem)
         else:
             self.handling_jobs.remove((elem, 0))
-            
+
     def box_alloc_cp(self, alloc_cp_list, cp_usage):
         # 0 - 1
         self.cp_usage = cp_usage
         self.computation_power_alloc.olist = list.copy(alloc_cp_list.tolist())
-        self.cp_norm = utils.normalize_array_np(self.computation_power_alloc.olist)
+
+        ava_alloc = []
+
+        for idx, veh_info in enumerate(self.handling_jobs):
+            if veh_info is not None:
+                veh, raito = veh_info
+                veh: Vehicle
+                ava_alloc.append(self.computation_power_alloc[idx])
+            else:
+                ava_alloc.append(None)
+
+        # improve performance
+        if utils.all_none(ava_alloc):
+            return
+        
+        sum_alloc = sum([a if a is not None else 0 for a in ava_alloc])
+
+        if sum_alloc != 0:
+            self.cp_norm = [
+                (
+                    a * self.computation_power_alloc[a_idx] / sum_alloc
+                    if a is not None
+                    else 0
+                )
+                for a_idx, a in enumerate(ava_alloc)
+            ]
+        else:
+            assert NotImplementedError("why you here")
+
         real_cp = self.computation_power * self.cp_usage
         self.real_cp_alloc.olist = [real_cp * cp_n for cp_n in self.cp_norm]
         pass
-    
+
     def box_alloc_bw(self, alloc_bw_list, veh_ids):
         self.bw_alloc.olist = list.copy(alloc_bw_list.tolist())
         from vanet_env import network
 
-        self.bw_norm = utils.normalize_array_np(self.bw_alloc.olist)
+        ava_alloc = []
+        for idx, veh in enumerate(self.connections):
+            veh: Vehicle
+            if veh is not None and veh.vehicle_id in veh_ids:
+                ava_alloc.append(self.bw_alloc[idx])
+            else:
+                ava_alloc.append(None)
+
+        # improve performance
+        if utils.all_none(ava_alloc):
+            return
+
+        sum_alloc = sum([a if a is not None else 0 for a in ava_alloc])
+
+        if sum_alloc != 0:
+            self.bw_norm = [
+                a * self.bw_alloc[a_idx] / sum_alloc if a is not None else 0
+                for a_idx, a in enumerate(ava_alloc)
+            ]
+        else:
+            assert NotImplementedError("why you here")
 
         for idx, veh in enumerate(self.connections):
             veh: Vehicle
             if veh is not None and veh.vehicle_id in veh_ids:
                 veh.data_rate = network.channel_capacity(
-                    self, veh, self.bw * self.bw_norm[idx] * self.bw_ratio
+                    self,
+                    veh,
+                    veh.distance_to_rsu,
+                    self.bw * self.bw_norm[idx],
                 )
+                veh
         pass
-    
+
     def frame_allocate_computing_power(
         self,
         alloc_index: int,
@@ -315,7 +367,7 @@ class Rsu:
             proc_veh_set.add(veh.vehicle_id)
 
     def frame_cache_content(self, caching_decision, num_content):
-        caching_decision = math.floor(caching_decision * num_content) 
+        caching_decision = math.floor(caching_decision * num_content)
         self.caching_contents.queue_jumping(caching_decision)
 
     # notice, cal utility only when connect this rsu
@@ -338,7 +390,10 @@ class Rsu:
             if veh is not None and veh.vehicle_id in veh_ids:
                 proc_veh_set.add(veh.vehicle_id)
                 veh.data_rate = network.channel_capacity(
-                    self, veh, self.bw * self.bw_norm[idx] * self.bw_ratio
+                    self,
+                    veh,
+                    distance=veh.distance_to_rsu,
+                    bw=self.bw * self.bw_norm[idx] * self.bw_ratio,
                 )
 
     def allocate_computing_power(
@@ -433,11 +488,11 @@ class Rsu:
                     # 替换自动云连接
                     if veh_replaced is not None:
                         veh_replaced.is_cloud = True
-                        veh_replaced.job.processing_rsu_id = config.NUM_RSU
+                        veh_replaced.job.processing_rsu_id = env_config.NUM_RSU
             # cloud
             else:
                 veh.is_cloud = True
-                veh.job.processing_rsu_id = config.NUM_RSU
+                veh.job.processing_rsu_id = env_config.NUM_RSU
 
     # python < 3.11
     def frame_queuing_job(
@@ -448,7 +503,7 @@ class Rsu:
             # specify rsu process this
             # veh.connected_rsu_id = config.NUM_RSU
             veh.is_cloud = True
-            veh.job.processing_rsu_id = config.NUM_RSU
+            veh.job.processing_rsu_id = env_config.NUM_RSU
 
         # 唯一一个使is_cloud失效的地方
         veh.is_cloud = False
@@ -475,7 +530,7 @@ class Rsu:
             # there can be modify to more adaptable
             conn.rsu = self
             conn.is_cloud = True
-            conn.veh.job.processing_rsu_id = config.NUM_RSU
+            conn.veh.job.processing_rsu_id = env_config.NUM_RSU
 
         # pending handle
         # if self handling, queue-jumping
@@ -492,25 +547,45 @@ class Rsu:
 
     # to km
     def real_distance(self, vh_position):
-        return self.distance(vh_position) / (1000 / config.COORDINATE_UNIT)
+        return self.distance(vh_position) / (1000 / env_config.COORDINATE_UNIT)
 
     def get_d1_d2(self, vh_position: Point, vh_direction):
         # vh_direction is angle in degree, 0 points north, 90 points east ...
         # for convince: 0-45°, 315°-360° is north; 135°-225° is south
-        if (0 <= vh_direction <= 45) or (315 <= vh_direction <= 360):
-            # "North"
-            return abs(self.position.y - vh_position.y), abs(
-                self.position.x - vh_position.x
-            )
-        elif 135 <= vh_direction <= 225:
-            # "South"
-            return abs(self.position.y - vh_position.y), abs(
-                self.position.x - vh_position.x
-            )
-        else:
-            return abs(self.position.x - vh_position.x), abs(
-                self.position.y - vh_position.y
-            )
+        # if (0 <= vh_direction <= 45) or (315 <= vh_direction <= 360):
+        #     # "North"
+        #     return abs(self.position.y - vh_position.y), abs(
+        #         self.position.x - vh_position.x
+        #     )
+        # elif 135 <= vh_direction <= 225:
+        #     # "South"
+        #     return abs(self.position.y - vh_position.y), abs(
+        #         self.position.x - vh_position.x
+        #     )
+        # else:
+        #     return abs(self.position.x - vh_position.x), abs(
+        #         self.position.y - vh_position.y
+        #     )
+
+        # Convert direction from degrees to radians
+        angle_rad = math.radians(vh_direction)
+
+        # Calculate the relative position of RSU with respect to the vehicle
+        dx = self.position.x - vh_position.x
+        dy = self.position.y - vh_position.y
+
+        # Calculate the unit vector of the vehicle's direction
+        unit_x = math.sin(angle_rad)  # x-component of the unit vector
+        unit_y = math.cos(angle_rad)  # y-component of the unit vector
+
+        # Project the relative position onto the vehicle's direction
+        # Horizontal distance (parallel to the vehicle's direction)
+        horizontal_distance = abs(dx * unit_x + dy * unit_y)
+
+        # Vertical distance (perpendicular to the vehicle's direction)
+        vertical_distance = abs(dx * unit_y - dy * unit_x)
+
+        return vertical_distance, horizontal_distance
 
 
 class Job:
@@ -544,11 +619,11 @@ class Vehicle:
         join_time,
         job_type=None,
         init_all=True,
-        seed=config.SEED,
+        seed=env_config.SEED,
         max_connections=4,
     ):
         self.vehicle_id = vehicle_id
-        self.height = config.VEHICLE_ANTENNA_HEIGHT
+        self.height = env_config.VEHICLE_ANTENNA_HEIGHT
         self.position = None
         self.angle = None
         self.sumo = sumo
@@ -557,7 +632,7 @@ class Vehicle:
 
         random.seed(self.seed)
 
-        job_size = random.randint(8, config.MAX_JOB_SIZE)
+        job_size = random.randint(8, env_config.MAX_JOB_SIZE)
 
         # done -> Need for popularity modeling
         job_type = job_type
@@ -637,7 +712,7 @@ class CustomVehicle(Vehicle):
         id,
         position: Point,
         sumo=traci,
-        height=config.VEHICLE_ANTENNA_HEIGHT,
+        height=env_config.VEHICLE_ANTENNA_HEIGHT,
         direction=0,
     ):
         self.id = id

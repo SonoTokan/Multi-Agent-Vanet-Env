@@ -4,6 +4,8 @@ import math
 import random
 import sys
 
+from vanet_env import env_config
+
 sys.path.append("./")
 import pandas as pd
 from shapely import Point
@@ -29,7 +31,7 @@ from gymnasium import spaces
 from gym import spaces as gym_spaces
 
 # custom
-from vanet_env import config, network, caching, utility
+from vanet_env import network, caching, utility
 from vanet_env.utils import (
     RSU_MARKER,
     VEHICLE_MARKER,
@@ -66,13 +68,13 @@ class Env(ParallelEnv):
         caching_fps=10,  # time split to 10 pieces
         fps=10,
         max_step=36000,  # need focus on fps
-        seed=config.SEED,
+        seed=env_config.SEED,
     ):
 
-        self.num_rsus = config.NUM_RSU
-        self.num_vh = config.NUM_VEHICLES / 2
+        self.num_rsus = env_config.NUM_RSU
+        self.num_vh = env_config.NUM_VEHICLES / 2
         # self.max_size = config.MAP_SIZE  # deprecated
-        self.road_width = config.ROAD_WIDTH
+        self.road_width = env_config.ROAD_WIDTH
         self.seed = seed
         self.render_mode = render_mode
         self.multi_core = multi_core
@@ -83,10 +85,10 @@ class Env(ParallelEnv):
         random.seed(self.seed)
 
         # important rsu info
-        self.max_connections = config.MAX_CONNECTIONS
-        self.num_cores = config.NUM_CORES
-        self.max_content = config.NUM_CONTENT
-        self.max_caching = config.RSU_CACHING_CAPACITY
+        self.max_connections = env_config.MAX_CONNECTIONS
+        self.num_cores = env_config.NUM_CORES
+        self.max_content = env_config.NUM_CONTENT
+        self.max_caching = env_config.RSU_CACHING_CAPACITY
         # rsu range veh wait for connections
         self.max_queue_len = 10
         # every single weight
@@ -99,7 +101,7 @@ class Env(ParallelEnv):
         self.rsus = [
             Rsu(
                 id=i,
-                position=Point(config.RSU_POSITIONS[i]),
+                position=Point(env_config.RSU_POSITIONS[i]),
                 max_connections=self.max_connections,
                 max_cores=self.num_cores,
             )
@@ -257,7 +259,7 @@ class Env(ParallelEnv):
             ),
         )
 
-    def reset(self, seed=config.SEED, options=None):
+    def reset(self, seed=env_config.SEED, options=None):
         if not self.content_loaded:
             self._content_init()
             self.content_loaded = True
@@ -529,7 +531,6 @@ class Env(ParallelEnv):
 
         # env 0
         actions = actions[0]
-        frame = self.timestep % self.fps
 
         # 将 actions 和它们的原始索引组合成元组列表
         indexed_actions = list(enumerate(actions))
@@ -547,7 +548,10 @@ class Env(ParallelEnv):
 
             _mig_job(rsu=rsu, action=action, idx=idx)
 
-            # resource alloc
+        for idx, action in indexed_actions:
+            rsu: Rsu = self.rsus[idx]
+
+            # resource alloc after all handling
             pre = (num_nb + 1) * self.max_connections
             cp_alloc_actions = action[pre : pre + self.num_cores]
             pre = pre + self.num_cores
@@ -559,10 +563,9 @@ class Env(ParallelEnv):
             rsu.box_alloc_cp(alloc_cp_list=cp_alloc_actions, cp_usage=cp_usage)
             rsu.box_alloc_bw(alloc_bw_list=bw_alloc_actions, veh_ids=self.vehicle_ids)
 
-            # independ caching policy here
-            if self.timestep % self.caching_step == 0:
-                a = action[pre:]
-                rsu.frame_cache_content(a, self.max_content)
+            # independ caching policy here, 也可以每个时间步都caching
+            a = action[pre:]
+            rsu.frame_cache_content(a, self.max_content)
 
     def _beta_update_box_observations(self, time_step):
         observations = {}
@@ -690,7 +693,7 @@ class Env(ParallelEnv):
             # 距离排序
             # only connect 1
             distances, sorted_indices = self.rsu_tree.query(
-                vehicle_coord, k=len(config.RSU_POSITIONS)
+                vehicle_coord, k=len(env_config.RSU_POSITIONS)
             )
             idx = sorted_indices[0]
             dis = distances[0]
