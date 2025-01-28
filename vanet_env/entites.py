@@ -235,6 +235,8 @@ class Rsu:
         self.max_connections = max_connections
         self.max_cores = max_cores
         self.num_atn = num_atn
+        # if idle not doing anything
+        self.idle = False
 
         # distance to vehs
         self.distances = OrderedQueueList(max_connections)

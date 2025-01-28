@@ -1,4 +1,4 @@
-from deprecated import gym_env_sumo
+from deprecated import gym_env_sumo, utility
 from vanet_env import env_config
 from vanet_env import (
     caching,
@@ -6,7 +6,6 @@ from vanet_env import (
     entites,
     network,
     test,
-    utility,
     utils,
     model,
 )

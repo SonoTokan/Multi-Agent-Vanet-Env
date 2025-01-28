@@ -106,8 +106,8 @@ HOP_LATENCY = 3
 HOP_OPT_FACTOR = 90
 # vrc Meta Quest 2 with Complex Avatar 35-65 tflops, 25-70 Mbps
 # 90fps -> 1frame=0.01111 s -> 11.11ms
-JOB_CP_REQUIRE = 20
-JOB_DR_REQUIRE = 40
+JOB_CP_REQUIRE = 60
+JOB_DR_REQUIRE = 80
 JOB_FPS_REQUIRE = 90
 # latency factor
 LATENCY_FACTOR = ...

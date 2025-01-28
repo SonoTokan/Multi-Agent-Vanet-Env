@@ -4,6 +4,7 @@ import math
 import random
 import sys
 
+from vanet_env import utility_light
 from vanet_env import env_config
 
 sys.path.append("./")
@@ -31,7 +32,7 @@ from gymnasium import spaces
 from gym import spaces as gym_spaces
 
 # custom
-from vanet_env import network, caching, utility
+from vanet_env import network, caching
 from vanet_env.utils import (
     RSU_MARKER,
     VEHICLE_MARKER,
@@ -323,26 +324,40 @@ class Env(ParallelEnv):
         observations = self._beta_update_box_observations(time_step=self.timestep)
         # time up or sumo done
 
+        truncations = {a: False for a in self.agents}
+        infos = {}
+
+        for idx, a in enumerate(self.agents):
+            rsu = self.rsus[idx]
+            # deprecated
+            if rewards[a] > 0:
+                infos[a] = {"reward_mask": False}
+            elif rsu.handling_jobs.is_empty() and rsu.range_connections.is_empty():
+                infos[a] = {"reward_mask": True}
+            else:
+                infos[a] = {"reward_mask": True}
+            # 当前范围内有connections或handling jobs的才active，
+            # 还有没有其他情况？
+            # connections呢？理论上来说range没有connections也没有
+            if not rsu.handling_jobs.is_empty() or not rsu.range_connections.is_empty():
+                infos[a] = {"active_mask": True}
+                rsu.idle = False
+                for rsu_id in self.rsu_network[rsu.id]:
+                    self.rsus[rsu_id].idle = False
+            # 当且仅当范围内没有车辆且没有handling jobs
+            else:
+                infos[a] = {"active_mask": False}
+                rsu.idle = True
+
         # self.sumo.simulation.getMinExpectedNumber() <= 0
         if self.timestep >= self.max_step:
             terminations = {a: True for a in self.agents}
+            infos = {a: {"bad_transition": True} for a in self.agents}
             self.sumo.close()
             self.sumo_has_init = False
         else:
-            terminations = {a: False for a in self.agents}
-
-        truncations = {a: False for a in self.agents}
-
-        # 如果范围内没有veh且没有handling_jobs则为bad_transition
-        infos = {}
-        for idx, a in enumerate(self.agents):
-            rsu = self.rsus[idx]
-            if rewards[a] > 0:
-                infos[a] = {"bad_transition": False}
-            elif rsu.handling_jobs.is_empty() and rsu.range_connections.is_empty():
-                infos[a] = {"bad_transition": True}
-            else:
-                infos[a] = {"bad_transition": True}
+            infos = {a: {"bad_transition": False} for a in self.agents}
+            terminations = {a: self.rsus[idx].idle for idx, a in enumerate(self.agents)}
 
         self.timestep += 1
 
@@ -546,10 +561,16 @@ class Env(ParallelEnv):
         for idx, action in indexed_actions:
             rsu: Rsu = self.rsus[idx]
 
+            if rsu.idle:
+                continue
+
             _mig_job(rsu=rsu, action=action, idx=idx)
 
         for idx, action in indexed_actions:
             rsu: Rsu = self.rsus[idx]
+
+            if rsu.idle:
+                continue
 
             # resource alloc after all handling
             pre = (num_nb + 1) * self.max_connections
@@ -565,6 +586,7 @@ class Env(ParallelEnv):
 
             # independ caching policy here, 也可以每个时间步都caching
             a = action[pre:]
+
             rsu.frame_cache_content(a, self.max_content)
 
     def _beta_update_box_observations(self, time_step):
@@ -649,7 +671,7 @@ class Env(ParallelEnv):
     def _calculate_box_rewards(self):
         rewards = {}
 
-        rsu_qoe_dict = utility.calculate_box_utility(
+        rsu_qoe_dict = utility_light.calculate_box_utility(
             vehs=self.vehicles,
             rsus=self.rsus,
             rsu_network=self.rsu_network,
@@ -777,7 +799,7 @@ class Env(ParallelEnv):
 
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent):
-        return self.mixed_frame_md_observation_space
+        return self.local_neighbor_obs_space
 
     @functools.lru_cache(maxsize=None)
     def global_observation_space(self, agent):
