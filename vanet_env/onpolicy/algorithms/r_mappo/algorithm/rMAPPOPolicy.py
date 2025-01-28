@@ -1,7 +1,11 @@
 import torch
 from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic
-from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic_cadp import R_Actor as R_Actor_CADP
-from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic_cadp import R_Critic as R_Critic_CADP
+from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic_cadp import (
+    R_Actor as R_Actor_CADP,
+)
+from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic_cadp import (
+    R_Critic as R_Critic_CADP,
+)
 from onpolicy.utils.util import update_linear_schedule, get_params_size
 
 
@@ -16,7 +20,9 @@ class R_MAPPOPolicy:
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
 
-    def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu")):
+    def __init__(
+        self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu")
+    ):
         self.device = device
         self.lr = args.lr
         self.critic_lr = args.critic_lr
@@ -27,7 +33,7 @@ class R_MAPPOPolicy:
         self.share_obs_space = cent_obs_space
         self.act_space = act_space
 
-        if getattr(args, 'use_CADP', False):
+        if getattr(args, "use_CADP", False):
             self.actor = R_Actor_CADP(args, self.obs_space, self.act_space, self.device)
             self.critic = R_Critic_CADP(args, self.share_obs_space, self.device)
         else:
@@ -38,13 +44,18 @@ class R_MAPPOPolicy:
         params_size = get_params_size(params)
         print(("params_size: {}".format(params_size)))
 
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
-                                                lr=self.lr, eps=self.opti_eps,
-                                                weight_decay=self.weight_decay)
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
-                                                 lr=self.critic_lr,
-                                                 eps=self.opti_eps,
-                                                 weight_decay=self.weight_decay)
+        self.actor_optimizer = torch.optim.Adam(
+            self.actor.parameters(),
+            lr=self.lr,
+            eps=self.opti_eps,
+            weight_decay=self.weight_decay,
+        )
+        self.critic_optimizer = torch.optim.Adam(
+            self.critic.parameters(),
+            lr=self.critic_lr,
+            eps=self.opti_eps,
+            weight_decay=self.weight_decay,
+        )
 
     def lr_decay(self, episode, episodes):
         """
@@ -55,8 +66,16 @@ class R_MAPPOPolicy:
         update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.critic_optimizer, episode, episodes, self.critic_lr)
 
-    def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, masks, available_actions=None,
-                    deterministic=False):
+    def get_actions(
+        self,
+        cent_obs,
+        obs,
+        rnn_states_actor,
+        rnn_states_critic,
+        masks,
+        available_actions=None,
+        deterministic=False,
+    ):
         """
         Compute actions and value function predictions for the given inputs.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -74,11 +93,9 @@ class R_MAPPOPolicy:
         :return rnn_states_actor: (torch.Tensor) updated actor network RNN states.
         :return rnn_states_critic: (torch.Tensor) updated critic network RNN states.
         """
-        actions, action_log_probs, rnn_states_actor = self.actor(obs,
-                                                                 rnn_states_actor,
-                                                                 masks,
-                                                                 available_actions,
-                                                                 deterministic)
+        actions, action_log_probs, rnn_states_actor = self.actor(
+            obs, rnn_states_actor, masks, available_actions, deterministic
+        )
 
         values, rnn_states_critic = self.critic(cent_obs, rnn_states_critic, masks)
         return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
@@ -95,8 +112,17 @@ class R_MAPPOPolicy:
         values, _ = self.critic(cent_obs, rnn_states_critic, masks)
         return values
 
-    def evaluate_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, action, masks,
-                         available_actions=None, active_masks=None):
+    def evaluate_actions(
+        self,
+        cent_obs,
+        obs,
+        rnn_states_actor,
+        rnn_states_critic,
+        action,
+        masks,
+        available_actions=None,
+        active_masks=None,
+    ):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -113,17 +139,16 @@ class R_MAPPOPolicy:
         :return action_log_probs: (torch.Tensor) log probabilities of the input actions.
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
-        action_log_probs, dist_entropy = self.actor.evaluate_actions(obs,
-                                                                     rnn_states_actor,
-                                                                     action,
-                                                                     masks,
-                                                                     available_actions,
-                                                                     active_masks)
+        action_log_probs, dist_entropy = self.actor.evaluate_actions(
+            obs, rnn_states_actor, action, masks, available_actions, active_masks
+        )
 
         values, _ = self.critic(cent_obs, rnn_states_critic, masks)
         return values, action_log_probs, dist_entropy
 
-    def act(self, obs, rnn_states_actor, masks, available_actions=None, deterministic=False):
+    def act(
+        self, obs, rnn_states_actor, masks, available_actions=None, deterministic=False
+    ):
         """
         Compute actions using the given inputs.
         :param obs (np.ndarray): local agent inputs to the actor.
@@ -133,5 +158,7 @@ class R_MAPPOPolicy:
                                   (if None, all actions available)
         :param deterministic: (bool) whether the action should be mode of distribution or should be sampled.
         """
-        actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
+        actions, _, rnn_states_actor = self.actor(
+            obs, rnn_states_actor, masks, available_actions, deterministic
+        )
         return actions, rnn_states_actor

@@ -224,7 +224,6 @@ class VANETRunner(Runner):
             ]
         )
 
-
         if not self.use_centralized_V:
             share_obs = obs
 
@@ -240,7 +239,7 @@ class VANETRunner(Runner):
             masks,
             bad_masks,
             active_masks,
-            reward_masks
+            reward_masks,
         )
 
     def log_train(self, train_infos, total_num_steps):

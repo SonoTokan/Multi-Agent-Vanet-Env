@@ -48,7 +48,9 @@ class SquashedNormal(torch.distributions.TransformedDistribution):
 
 class FixedBeta(torch.distributions.Beta):
     def mode(self):
-        return (self.concentration0 - 1) / (self.concentration0 + self.concentration1 - 2)
+        return (self.concentration0 - 1) / (
+            self.concentration0 + self.concentration1 - 2
+        )
 
     def log_probs(self, actions):
         return super().log_prob(actions).sum(-1, keepdim=True)
@@ -106,7 +108,7 @@ class DiagGaussian(nn.Module):
     def __init__(self, num_inputs, num_outputs, use_orthogonal=True, gain=0.01):
         # super(DiagGaussian, self).__init__()
         # init_method = nn.init.orthogonal_ if use_orthogonal else nn.init.xavier_uniform_
-        
+
         # def init_(m):
         #     init_method(m.weight, gain=gain)
         #     nn.init.constant_(m.bias, 0)
@@ -114,7 +116,7 @@ class DiagGaussian(nn.Module):
 
         # self.fc_mean = init_(nn.Linear(num_inputs, num_outputs))
         # self.logstd = nn.Parameter(torch.zeros(num_outputs))
-        
+
         super(DiagGaussian, self).__init__()
 
         init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][use_orthogonal]
@@ -138,8 +140,7 @@ class DiagGaussian(nn.Module):
         #     zeros = zeros.cuda()
 
         # action_logstd = self.logstd(zeros)
-        
-        
+
         action_mean = torch.sigmoid(self.fc_mean(x))  # 使用 Sigmoid 限制到 [0.0, 1.0]
         # action_mean = torch.tanh(self.fc_mean(x))  # 使用 Tanh 限制到 [-1.0, 1.0]
         # action_mean = (action_mean + 1) / 2  # 缩放到 [0.0, 1.0]
@@ -154,8 +155,6 @@ class DiagGaussian(nn.Module):
         action_logstd = self.logstd(zeros)
         return FixedNormal(action_mean, action_logstd.exp())
 
-
-        
         # action_mean = self.fc_mean(x)
         # action_std = torch.exp(self.logstd)
         # return SquashedNormal(action_mean, action_std)

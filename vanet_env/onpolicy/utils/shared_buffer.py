@@ -173,7 +173,6 @@ class SharedReplayBuffer(object):
         bad_masks=None,
         active_masks=None,
         available_actions=None,
-
     ):
         """
         Insert data into the buffer. This insert function is used specifically for Hanabi, which is turn based.
@@ -206,7 +205,6 @@ class SharedReplayBuffer(object):
         if available_actions is not None:
             self.available_actions[self.step] = available_actions.copy()
 
-            
         self.step = (self.step + 1) % self.episode_length
 
     def after_update(self):
@@ -218,11 +216,9 @@ class SharedReplayBuffer(object):
         self.masks[0] = self.masks[-1].copy()
         self.bad_masks[0] = self.bad_masks[-1].copy()
         self.active_masks[0] = self.active_masks[-1].copy()
-        
+
         if self.available_actions is not None:
             self.available_actions[0] = self.available_actions[-1].copy()
-        
-
 
     def chooseafter_update(self):
         """Copy last timestep data to first index. This method is used for Hanabi."""
@@ -230,8 +226,6 @@ class SharedReplayBuffer(object):
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
         self.masks[0] = self.masks[-1].copy()
         self.bad_masks[0] = self.bad_masks[-1].copy()
-        
-
 
     def compute_returns(self, next_value, value_normalizer=None):
         """
