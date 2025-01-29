@@ -1,3 +1,4 @@
+import collections
 import functools
 import itertools
 import math
@@ -73,7 +74,6 @@ class Env(ParallelEnv):
     ):
 
         self.num_rsus = env_config.NUM_RSU
-        self.num_vh = env_config.NUM_VEHICLES / 2
         # self.max_size = config.MAP_SIZE  # deprecated
         self.road_width = env_config.ROAD_WIDTH
         self.seed = seed
@@ -95,6 +95,7 @@ class Env(ParallelEnv):
         # every single weight
         self.max_weight = 10
         self.qoe_weight = 10
+        self.bins = 5
         # fps means frame per second(frame per sumo timestep)
         self.fps = fps
 
@@ -240,24 +241,53 @@ class Env(ParallelEnv):
             0.0, 1.0, shape=((neighbor_num + 1) * 2,)
         )
 
+        # 事实上由于norm的原因，这个越多基本上random越占优
         # 第一个动作，将connections queue的veh迁移至哪个邻居？0或1，box即0-0.49 0.5-1.0
         # 第一个动作可以改为每个rsu的任务分配比例（自己，邻居1，邻居2），这样适合box，
+        # 按比例来搞任务分配的话似乎不太行，random太强势了，可以加个任务max分配大小
+        # （max分配大小乘以其任务分配比例即该rsu，算能耗时也可以用到）
+        # 所以第二个动作就是# 每个connections 的 max分配大小
         # 这样改的话handling_jobs就是个元组（veh, 任务比例）
-        # 第二个动作，将handling jobs内的算力资源进行分配，observation需要修改
-        # 第三个动作，将connections内的通信资源进行分配
-        # 第四个动作, 分配总算力
-        # 第五个动作, 缓存策略 math.floor(caching * self.max_content)
-
+        # 第3个动作，将handling jobs内的算力资源进行分配，observation需要修改
+        # 第4个动作，将connections内的通信资源进行分配
+        # 第5个动作, 分配总算力
+        # 第6个动作, 缓存策略 math.floor(caching * self.max_content)
         self.box_neighbor_action_space = spaces.Box(
             0.0,
             1.0,
             shape=(
                 (neighbor_num + 1) * self.max_connections
+                + self.max_connections  # 每个connections 的 max分配大小
                 + self.num_cores
                 + self.max_connections
                 + 1
                 + self.max_caching,
             ),
+        )
+
+        # 离散化区间
+        bins = self.bins
+
+        self.action_space_dims = [
+            self.max_connections,  # 动作1: 自己任务分配比例
+            self.max_connections,  # 动作2: 邻居任务分配比例，与上数相操作可得
+            self.max_connections,  # 动作3: 每个连接的最大分配大小，可不用但是random会很高？
+            self.num_cores,  # 动作4: 算力资源分配
+            self.max_connections,  # 动作5: 通信资源分配
+            self.num_cores,  # 动作6: 总算力分配
+            self.max_caching,  # 动作7: 缓存策略，不需要bin因为本来就是离散的
+        ]
+
+        action_space_dims = self.action_space_dims
+
+        self.md_discrete_action_space = spaces.MultiDiscrete(
+            [bins] * action_space_dims[0]
+            + [bins] * action_space_dims[1]
+            + [bins] * action_space_dims[2]
+            + [bins] * action_space_dims[3]
+            + [bins] * action_space_dims[4]
+            + [bins] * action_space_dims[5]
+            + [self.max_content] * action_space_dims[6]
         )
 
     def reset(self, seed=env_config.SEED, options=None):
@@ -312,13 +342,23 @@ class Env(ParallelEnv):
 
         self._update_all_rsus_idle()
 
-        terminations = {a: self.rsus[idx].idle for idx, a in enumerate(self.agents)}
+        infos = {
+            a: {"bad_transition": False, "idle": self.rsus[idx].idle}
+            for idx, a in enumerate(self.agents)
+        }
 
-        infos = {a: {} for a in self.agents}
+        terminations = {a: False for idx, a in enumerate(self.agents)}
+
+        infos = {a: {"idle": self.rsus[idx].idle} for idx, a in enumerate(self.agents)}
 
         return observations, terminations, infos
 
     def step(self, actions):
+
+        # if env not reset auto, reset before update env
+        if not self.sumo_has_init:
+            observations, terminations, _ = self.reset()
+
         # random
         random.seed(self.seed + self.timestep)
         # take action
@@ -352,18 +392,21 @@ class Env(ParallelEnv):
         if self.timestep >= self.max_step:
             # bad transition means real terminal
             terminations = {a: True for a in self.agents}
-            infos = {a: {"bad_transition": True} for a in self.agents}
+            infos = {
+                a: {"bad_transition": True, "idle": self.rsus[idx].idle}
+                for idx, a in enumerate(self.agents)
+            }
+
             self.sumo.close()
             self.sumo_has_init = False
         else:
-            infos = {a: {"bad_transition": False} for a in self.agents}
-            terminations = {a: self.rsus[idx].idle for idx, a in enumerate(self.agents)}
+            infos = {
+                a: {"bad_transition": False, "idle": self.rsus[idx].idle}
+                for idx, a in enumerate(self.agents)
+            }
+            terminations = {a: False for idx, a in enumerate(self.agents)}
 
         self.timestep += 1
-
-        # if env not reset auto, reset before update env
-        if not self.sumo_has_init:
-            observations, terminations, _ = self.reset()
 
         if self.render_mode == "human":
             self.render()
@@ -407,6 +450,7 @@ class Env(ParallelEnv):
             updates[rsu.id] = rsu.check_idle(self.rsus, self.rsu_network)
             self.rsus[rsu.id].idle = updates[rsu.id]["self_idle"]
 
+        ...
         # 第二阶段：统一更新所有 RSU 的邻居状态，但不更新自己的状态
         for rsu_id, update in updates.items():
 
@@ -450,6 +494,158 @@ class Env(ParallelEnv):
         # vehs need pending job
         # self.pending_job_vehicles = [veh for veh in self.vehicles if not veh.job.done()]
 
+    def _beta_take_actions(self, actions):
+        def _mig_job(rsu: Rsu, action, idx):
+            if rsu.connections_queue.is_empty():
+                return
+
+            m_actions_self = action[: self.action_space_dims[0]]
+            pre = self.action_space_dims[0]
+            m_actions_nb = action[pre : pre + self.action_space_dims[1]]
+            pre = pre + self.action_space_dims[1]
+            m_actions_job_ratio = action[pre : pre + self.action_space_dims[2]]
+
+            nb_rsu1: Rsu = self.rsus[self.rsu_network[rsu.id][0]]
+            nb_rsu2: Rsu = self.rsus[self.rsu_network[rsu.id][1]]
+
+            # 取样，这个list可以改为其他
+            for m_idx in m_actions_self:
+
+                veh_id: Vehicle = rsu.connections_queue.remove(index=m_idx)
+
+                if veh_id is None:
+                    continue
+
+                veh = self.vehicles[veh_id]
+
+                self_ratio = m_actions_self[idx] / self.bins
+                nb_ratio = m_actions_nb[idx] / self.bins
+                job_ratio = m_actions_job_ratio[idx] / self.bins
+
+                sum_ratio = self.ratio + nb_ratio
+
+                # 0就是不迁移，一般不会0
+                if sum_ratio >= 0:
+
+                    # 这种都可以靠遍历，如果k>3 需要修改逻辑
+                    is_full = [
+                        rsu.handling_jobs.is_full(),
+                        nb_rsu1.handling_jobs.is_full(),
+                        nb_rsu2.handling_jobs.is_full(),
+                    ]
+
+                    index_in_rsu = rsu.handling_jobs.index((veh, 0))
+                    index_in_nb_rsu1 = nb_rsu1.handling_jobs.index((veh, 0))
+                    index_in_nb_rsu2 = nb_rsu2.handling_jobs.index((veh, 0))
+                    idxs_in_rsus = [index_in_rsu, index_in_nb_rsu1, index_in_nb_rsu2]
+                    in_rsu = [elem is not None for elem in idxs_in_rsus]
+
+                    # 理论上到这里的都是在范围内，可以debug看下是不是
+                    # 三个都满了直接cloud
+                    if all(is_full):
+                        # 都满了，却不在这三个任意一个
+                        if not any(in_rsu):
+                            veh.is_cloud = True
+                            veh.job.is_cloud = True
+                            if not veh.job.processing_rsus.is_empty():
+                                veh.job.processing_rsus
+                                veh.job.processing_rsus.clear()
+                            continue
+
+                    # 假如已在里面只需调整ratio，理论上到这一步基本不会失败因为至少有个非full
+                    # 或者至少在一个里面，但是存在只分配成功一个位置，因此需要最后计算ratio
+
+                    mig_rsus = np.array([rsu, nb_rsu1, nb_rsu2])
+
+                    mig_ratio = np.array([self_ratio, nb_ratio / 2, nb_ratio / 2])
+                    # 能到这里说明三个rsu至少一个没空或至少有一个在三个rsu里
+                    # is_full 为rsu是否满，in_rsu为是否在里面
+                    is_full = np.array(is_full)
+                    in_rsu = np.array(in_rsu)
+                    # 生成布尔掩码
+                    update_mask = is_full & in_rsu  # 需要更新的 RSU
+                    store_mask = ~is_full & ~in_rsu  # 需要存入的 RSU
+
+                    # 合并更新和存入的掩码
+                    valid_mask = update_mask | store_mask  # 需要更新或存入的 RSU
+
+                    # 只对满足条件的 RSU 的 mig_ratio 进行归一化
+                    if np.any(valid_mask):  # 如果有需要更新或存入的 RSU
+                        valid_ratios = mig_ratio[valid_mask]  # 提取满足条件的 mig_ratio
+                        total_ratio = np.sum(valid_ratios)  # 计算总和
+                        if total_ratio > 0:  # 避免除以零
+                            mig_ratio[valid_mask] = valid_ratios / total_ratio  # 归一化
+
+                    # 更新
+                    for idx, rsu in enumerate(mig_rsus):
+                        if update_mask[idx]:
+                            rsu: Rsu
+                            rsu.handling_jobs[idxs_in_rsus[idx]] = (
+                                veh,
+                                float(mig_ratio[idx]),
+                            )
+
+                    # 存入
+                    for idx, rsu in enumerate(mig_rsus):
+                        if store_mask[idx]:
+                            rsu: Rsu
+                            # connections有可能爆满
+                            veh_disconnect = rsu.connections.queue_jumping(veh)
+                            rsu.handling_jobs.append((veh, float(mig_ratio[idx])))
+                            veh.job_process(idx, rsu)
+
+                            # 假如veh被断开连接
+                            if veh_disconnect is not None:
+                                veh_disconnect: Vehicle
+                                veh_disconnect.job_deprocess(
+                                    self.rsus, self.rsu_network
+                                )
+            pass
+
+        # env 0
+        actions = actions[0]
+
+        # 将 actions 和它们的原始索引组合成元组列表
+        indexed_actions = list(enumerate(actions))
+
+        # 随机打乱元组列表或用什么权重方法，
+        # 因为如果按顺序后面的车基本不可能能安排到邻居节点
+        random.shuffle(indexed_actions)
+        num_nb = len(self.rsu_network[0])
+
+        for idx, action in indexed_actions:
+            rsu: Rsu = self.rsus[idx]
+
+            if rsu.idle:
+                continue
+
+            _mig_job(rsu=rsu, action=action, idx=idx)
+
+        for idx, action in indexed_actions:
+            rsu: Rsu = self.rsus[idx]
+
+            if rsu.idle:
+                continue
+
+            # resource alloc after all handling
+            dims = self.action_space_dims
+            pre = sum(dims[:3])
+            cp_alloc_actions = np.array(action[pre : pre + dims[3]]) / self.bins
+            pre = pre + dims[3]
+            bw_alloc_actions = np.array(action[pre : pre + dims[4]]) / self.bins
+            pre = pre + dims[4]
+            cp_usage = np.array(action[pre : pre + dims[5]]) / self.bins
+            pre = pre + dims[5]
+
+            # 已经转为box了
+            rsu.box_alloc_cp(alloc_cp_list=cp_alloc_actions, cp_usage=cp_usage)
+            rsu.box_alloc_bw(alloc_bw_list=bw_alloc_actions, veh_ids=self.vehicle_ids)
+
+            # independ caching policy here, 也可以每个时间步都caching
+            a = action[pre:]
+
+            rsu.frame_cache_content(a, self.max_content)
+
     def _beta_take_box_actions(self, actions):
         """ """
 
@@ -460,8 +656,11 @@ class Env(ParallelEnv):
             if rsu.connections_queue.is_empty():
                 return
 
-            m_actions = action[: (num_nb + 1) * self.max_connections]
+            m_actions = action[
+                : (num_nb + 1) * self.max_connections + self.max_connections
+            ]
 
+            neighbor_num = len(self.rsu_network[0])
             nb_rsu1_id, nb_rsu2_id = self.rsu_network[idx]
             nb_rsu1: Rsu = self.rsus[nb_rsu1_id]
             nb_rsu2: Rsu = self.rsus[nb_rsu2_id]
@@ -478,6 +677,12 @@ class Env(ParallelEnv):
                 veh = self.vehicles[veh_id]
 
                 m_action = m_actions[m_idx : m_idx + num_nb + 1]
+                single_ratio = m_actions[
+                    (neighbor_num + 1) * self.max_connections
+                    + m_idx : (neighbor_num + 1) * self.max_connections
+                    + m_idx
+                    + 1
+                ]
                 sum_ratio = sum(m_action)
 
                 # 0就是不迁移，一般不会0
@@ -508,9 +713,9 @@ class Env(ParallelEnv):
                                 veh.job.processing_rsus.clear()
                             continue
 
-                    self_ratio = m_action[0] / sum_ratio
-                    nb1_ratio = m_action[1] / sum_ratio
-                    nb2_ratio = m_action[2] / sum_ratio
+                    self_ratio = m_action[0] * single_ratio / sum_ratio
+                    nb1_ratio = m_action[1] * single_ratio / sum_ratio
+                    nb2_ratio = m_action[2] * single_ratio / sum_ratio
 
                     # 假如已在里面只需调整ratio，理论上到这一步基本不会失败因为至少有个非full
                     # 或者至少在一个里面，但是存在只分配成功一个位置，因此需要最后计算ratio
@@ -540,7 +745,10 @@ class Env(ParallelEnv):
                     for idx, rsu in enumerate(mig_rsus):
                         if update_mask[idx]:
                             rsu: Rsu
-                            rsu.handling_jobs[idxs_in_rsus[idx]] = (veh, mig_ratio[idx])
+                            rsu.handling_jobs[idxs_in_rsus[idx]] = (
+                                veh,
+                                float(mig_ratio[idx]),
+                            )
 
                     # 存入
                     for idx, rsu in enumerate(mig_rsus):
@@ -548,7 +756,7 @@ class Env(ParallelEnv):
                             rsu: Rsu
                             # connections有可能爆满
                             veh_disconnect = rsu.connections.queue_jumping(veh)
-                            rsu.handling_jobs.append((veh, mig_ratio[idx]))
+                            rsu.handling_jobs.append((veh, float(mig_ratio[idx])))
                             veh.job_process(idx, rsu)
 
                             # 假如veh被断开连接
@@ -587,7 +795,7 @@ class Env(ParallelEnv):
                 continue
 
             # resource alloc after all handling
-            pre = (num_nb + 1) * self.max_connections
+            pre = (num_nb + 1) * self.max_connections + self.max_connections
             cp_alloc_actions = action[pre : pre + self.num_cores]
             pre = pre + self.num_cores
             bw_alloc_actions = action[pre : pre + self.max_connections]
@@ -703,7 +911,19 @@ class Env(ParallelEnv):
             if len(a) > 0:
                 for r in a:
                     sum += r
-                rewards[agent] = sum / len(a)
+                # rewards[agent] = sum / len(a)
+
+                # if isinstance(a, collections.abc.Iterable):
+                #     flattened = list(itertools.chain.from_iterable(a))
+                # else:
+                #     flattened = a
+                # rewards[agent] = np.mean(flattened)
+                try:
+                    flattened = list(itertools.chain.from_iterable(a))
+                except TypeError:
+                    # 如果展平失败（例如 a 是单个可迭代对象，但不是嵌套的），直接使用 a
+                    flattened = list(a)
+                rewards[agent] = np.mean(flattened)
             else:
                 rewards[agent] = 0.0
 
@@ -824,6 +1044,10 @@ class Env(ParallelEnv):
     @functools.lru_cache(maxsize=None)
     def local_observation_space(self, agent):
         return self.local_neighbor_obs_space
+
+    @functools.lru_cache(maxsize=None)
+    def multi_discrete_action_space(self, agent):
+        return self.md_discrete_action_space
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):

@@ -805,14 +805,16 @@ class ShareDummyVecEnv(ShareVecEnv):
         self.envs = [fn() for fn in env_fns]
         env = self.envs[0]
 
-        warp_action_space = env.action_space("")
+        warp_action_space = env.multi_discrete_action_space("")
         # action can get high
-        if not isinstance(env.action_space(""), Box):
-            nvec = env.action_space("").nvec - 1
-            zeros = np.zeros_like(nvec)
-            # 按列拼接
-            new_nvec = np.column_stack((zeros, nvec))
-            warp_action_space = MultiDiscrete(new_nvec)
+
+        # is instance不够好用，box记得切换回来
+        # if not isinstance(warp_action_space, Box):
+        nvec = env.action_space("").nvec - 1
+        zeros = np.zeros_like(nvec)
+        # 按列拼接
+        new_nvec = np.column_stack((zeros, nvec))
+        warp_action_space = MultiDiscrete(new_nvec)
 
         ShareVecEnv.__init__(
             self,
@@ -889,27 +891,39 @@ class ShareDummyVecEnv(ShareVecEnv):
     def reset(self):
         results = [env.reset() for env in self.envs]
         # single thread if not single plz modify
-        results = results[0][0]
+        results_obs = results[0][0]
+        results_dones = results[0][1]
+        results_infos = results[0][2]
 
         local_obs_list = []
         global_obs_list = []
         action_mask_list = []
+        dones = []
+        infos = []
 
-        for rsu_key in results:
-            local_obs_list.append(results[rsu_key]["local_obs"])
-            global_obs_list.append(results[rsu_key]["global_obs"])
-            action_mask_list.append(results[rsu_key]["action_mask"])
+        # check bugs?
+        for rsu_key in results_obs:
+
+            local_obs_list.append(results_obs[rsu_key]["local_obs"])
+            global_obs_list.append(results_obs[rsu_key]["global_obs"])
+            action_mask_list.append(results_obs[rsu_key]["action_mask"])
+            dones.append(results_dones[rsu_key])
+            infos.append(results_infos[rsu_key])
 
         # 转换为 NumPy 数组
         local_obs_array = np.array(local_obs_list)
         global_obs_array = np.array(global_obs_list)
         action_mask_array = np.array(action_mask_list)
+        dones_array = np.array(dones)
+        infos_array = np.array(infos)
 
         # obs, share_obs, available_actions = map(np.array, zip(*results))
 
         return (
             np.array([local_obs_array]),
             np.array([global_obs_array]),
+            np.array([dones_array]),
+            np.array([infos_array]),
         )
 
     def close(self):

@@ -17,8 +17,9 @@ from vanet_env.onpolicy.envs.env_wrappers import (
     ShareDummyVecEnv,
 )
 
-max_step = 3_600_0000
-env_max_step = max_step // 1000
+
+env_max_step = 10240
+max_step = env_max_step * 1000
 
 
 def make_train_env():
@@ -96,7 +97,7 @@ def main(args):
     print("seed is :", all_args.seed)
 
     all_args.num_env_steps = max_step
-    all_args.episode_length = 4096
+    all_args.episode_length = env_max_step
     all_args.log_interval = 1
     all_args.algorithm_name = "rmappo"
 
@@ -196,7 +197,7 @@ def main(args):
     #     from onpolicy.runner.shared.smac_runner import SMACRunner as Runner
     # else:
     #     from onpolicy.runner.separated.smac_runner import SMACRunner as Runner
-    from vanet_env.model.mappo.ctde.onpolicy.runner.shared.vanet_runner import (
+    from vanet_env.onpolicy.runner.shared.vanet_runner2 import (
         VANETRunner as Runner,
     )
 
@@ -205,14 +206,14 @@ def main(args):
 
     # post process
     envs.close()
-    if use_eval and eval_envs is not envs:
-        eval_envs.close()
+    # if use_eval and eval_envs is not envs:
+    #     eval_envs.close()
 
-    if use_wandb:
-        run.finish()
-    else:
-        runner.writter.export_scalars_to_json(str(runner.log_dir + "/summary.json"))
-        runner.writter.close()
+    # if use_wandb:
+    #     run.finish()
+    # else:
+    #     runner.writter.export_scalars_to_json(str(runner.log_dir + "/summary.json"))
+    #     runner.writter.close()
 
 
 if __name__ == "__main__":

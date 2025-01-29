@@ -328,7 +328,7 @@ class Rsu:
             assert NotImplementedError("why you here")
 
         real_cp = self.computation_power * self.cp_usage
-        self.real_cp_alloc.olist = [real_cp * cp_n for cp_n in self.cp_norm]
+        self.real_cp_alloc.olist = [float(real_cp * cp_n) for cp_n in self.cp_norm]
         pass
 
     def box_alloc_bw(self, alloc_bw_list, veh_ids):
@@ -351,7 +351,7 @@ class Rsu:
 
         if sum_alloc != 0:
             self.bw_norm = [
-                a / sum_alloc if a is not None else 0
+                float(a / sum_alloc) if a is not None else 0
                 for a_idx, a in enumerate(ava_alloc)
             ]
         else:
@@ -364,7 +364,7 @@ class Rsu:
                     self,
                     veh,
                     veh.distance_to_rsu,
-                    self.bw * self.bw_norm[idx],
+                    self.bw * self.bw_norm[idx] * self.num_atn,
                 )
                 veh
         pass
@@ -385,7 +385,8 @@ class Rsu:
             proc_veh_set.add(veh.vehicle_id)
 
     def frame_cache_content(self, caching_decision, num_content):
-        caching_decision = math.floor(caching_decision * num_content)
+        # caching_decision = math.floor(caching_decision * num_content)
+        caching_decision = caching_decision
         self.caching_contents.queue_jumping(caching_decision)
 
     # notice, cal utility only when connect this rsu

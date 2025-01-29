@@ -10,7 +10,6 @@ sys.path.append("./")
 
 import cProfile
 from pettingzoo.test import parallel_api_test
-from deprecated.gym_env_sumo import Env
 from vanet_env.entites import Rsu, CustomVehicle
 from vanet_env import utils
 from vanet_env import network
@@ -117,10 +116,12 @@ def osmx_test():
 
 # fps 144?
 def sumo_env_test():
+    from vanet_env.env_light import Env
+
     fps = 10
     # render_mode="human", None
-    env = Env(None)
-    obs, infos = env.reset()
+    env = Env("human")
+    env.reset()
 
     for i in range(100 * fps):
         env.step({})
@@ -128,14 +129,14 @@ def sumo_env_test():
 
 if __name__ == "__main__":
     # cProfile.run("sumo_env_test()", sort="time")
-    # sumo_env_test()
-    is_full = np.array([True, False, False])
-    is_in = np.array([False, True, False])
-    update_mask = is_full & is_in  # 需要更新的 RSU
-    store_mask = ~is_full & ~is_in  # 需要存入的 RSU
-    valid_mask = update_mask | store_mask
-    print(update_mask)
-    print(store_mask)
-    print(valid_mask)
+    sumo_env_test()
+    # is_full = np.array([True, False, False])
+    # is_in = np.array([False, True, False])
+    # update_mask = is_full & is_in  # 需要更新的 RSU
+    # store_mask = ~is_full & ~is_in  # 需要存入的 RSU
+    # valid_mask = update_mask | store_mask
+    # print(update_mask)
+    # print(store_mask)
+    # print(valid_mask)
 
     pass

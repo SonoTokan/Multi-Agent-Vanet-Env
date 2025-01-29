@@ -58,6 +58,9 @@ class FixedBeta(torch.distributions.Beta):
     def entropy(self):
         return super().entropy().sum(-1)
 
+    def sample(self):
+        return super().sample()
+
 
 # Normal
 class FixedNormal(torch.distributions.Normal):
@@ -104,6 +107,38 @@ class Categorical(nn.Module):
         return FixedCategorical(logits=x)
 
 
+class DiagGaussian_beta(nn.Module):
+    def __init__(self, num_inputs, num_outputs, use_orthogonal=True, gain=0.01):
+        super(DiagGaussian_beta, self).__init__()
+
+        init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][use_orthogonal]
+
+        def init_(m):
+            return init(m, init_method, lambda x: nn.init.constant_(x, 0), gain)
+
+        self.fc_mean = init_(nn.Linear(num_inputs, num_outputs))
+        self.logstd = AddBias(torch.zeros(num_outputs))
+
+    def forward(self, x):
+        action_mean = self.fc_mean(x)
+        zeros = torch.zeros(action_mean.size())
+        if x.is_cuda:
+            zeros = zeros.cuda()
+
+        # Get the log standard deviation, applying a non-negative constraint
+        action_logstd = self.logstd(zeros)
+
+        # Apply a softmax/clamp to ensure action_logstd doesn't contain negative values
+        action_logstd = torch.clamp(
+            action_logstd, min=1e-6
+        )  # Ensure no values are less than a small positive number
+
+        # Exponentiate the logstd to get std
+        action_logstd = action_logstd.exp()
+
+        return FixedBeta(action_mean, action_logstd)
+
+
 class DiagGaussian(nn.Module):
     def __init__(self, num_inputs, num_outputs, use_orthogonal=True, gain=0.01):
         # super(DiagGaussian, self).__init__()
@@ -141,7 +176,7 @@ class DiagGaussian(nn.Module):
 
         # action_logstd = self.logstd(zeros)
 
-        action_mean = torch.sigmoid(self.fc_mean(x))  # 使用 Sigmoid 限制到 [0.0, 1.0]
+        action_mean = self.fc_mean(x)
         # action_mean = torch.tanh(self.fc_mean(x))  # 使用 Tanh 限制到 [-1.0, 1.0]
         # action_mean = (action_mean + 1) / 2  # 缩放到 [0.0, 1.0]
         # 原始：
@@ -181,6 +216,7 @@ class AddBias(nn.Module):
         self._bias = nn.Parameter(bias.unsqueeze(1))
 
     def forward(self, x):
+        # my env shape torch.Size([20, 32])
         if x.dim() == 2:
             bias = self._bias.t().view(1, -1)
         else:

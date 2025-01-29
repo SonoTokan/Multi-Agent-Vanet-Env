@@ -1,4 +1,4 @@
-from deprecated import gym_env_sumo, utility
+
 from vanet_env import env_config
 from vanet_env import (
     caching,
@@ -7,7 +7,6 @@ from vanet_env import (
     network,
     test,
     utils,
-    model,
 )
 
 __version__ = "0.1.0"
@@ -22,5 +21,4 @@ __all__ = [
     "test",
     "utility",
     "utils",
-    "model",
 ]

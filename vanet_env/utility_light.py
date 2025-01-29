@@ -26,12 +26,12 @@ def calculate_box_utility(
     num_cores=env_config.NUM_CORES,
 ):
     rsu_utility_dict = defaultdict(list)
-    hop_penalty_rate = 0.01
-    max_ee = 0.1
+    hop_penalty_rate = 0.1
+    max_ee = 0.2
     qoe_factor = 1 - max_ee
 
     # 观察reward用
-    if time_step >= 1000 and time_step % 1000 == 0:
+    if time_step >= 50:
         time_step
 
     # 由veh计算，
@@ -50,16 +50,35 @@ def calculate_box_utility(
         # n者的process qoe除以n
         rsu_trans_qoe_dict = defaultdict(list)
         rsu_proc_qoe_dict = defaultdict(list)
+        proc_qoes = defaultdict(list)
+
+        if veh.job.processing_rsus.is_empty():
+            # 相当于在连接却无处理，一般不会
+            if veh.connected_rsu_id != None:
+                # 惩罚之
+                rsu_utility_dict[veh.connected_rsu_id].append(0.0)
 
         # 一般是邻居
         for p_rsu in veh.job.processing_rsus:
+            # 即single ratio
+            job_ratio_all = 0.0
 
+            # qoe calculate after last for
             if p_rsu is not None:
                 p_rsu: Rsu
                 p_idx = p_rsu.handling_jobs.index((veh, 0))
+                job_ratio = p_rsu.handling_jobs[p_idx][1]
+                job_ratio_all += job_ratio
+
+                # 每个for最后append进global的，不要忘了，
+                # 因为qoe要在最后*job_ratio_all，可以加factor，不用无脑乘
+                #
+                trans_qoes = defaultdict(list)
+                proc_qoes = defaultdict(list)
+
                 process_qoe = (
                     min(
-                        p_rsu.real_cp_alloc[p_idx] / p_rsu.handling_jobs[p_idx][1],
+                        p_rsu.real_cp_alloc[p_idx] / job_ratio,
                         env_config.JOB_CP_REQUIRE,
                     )
                     / env_config.JOB_CP_REQUIRE
@@ -72,9 +91,9 @@ def calculate_box_utility(
 
                     # caching debug
                     if veh.job.job_type in trans_rsu.caching_contents:
-                        qoe = min(qoe + qoe * 0.2, 1)
+                        qoe = min(qoe + qoe * 0.15, 1)
                     else:
-                        qoe = max(qoe - qoe * 0.05, 0)
+                        qoe = max(qoe - qoe * 0.1, 0)
 
                     veh.job.qoe = qoe
 
@@ -83,35 +102,46 @@ def calculate_box_utility(
                     # rsu_utility_dict[veh.connected_rsu_id].append(
                     #     float(qoe * qoe_factor + trans_rsu.ee)
                     # )
-                    rsu_trans_qoe_dict[veh.connected_rsu_id].append(
+                    trans_qoes[veh.connected_rsu_id].append(
                         float(qoe * qoe_factor + trans_rsu.ee)
                     )
+                    proc_qoes[p_rsu.id].append(float(qoe * qoe_factor + trans_rsu.ee))
 
-                    rsu_proc_qoe_dict[p_rsu.id].append(
-                        float(qoe * qoe_factor + trans_rsu.ee)
-                    )
+                    # rsu_trans_qoe_dict[veh.connected_rsu_id].append(
+                    #     float(qoe * qoe_factor + trans_rsu.ee)
+                    # )
+
+                    # rsu_proc_qoe_dict[p_rsu.id].append(
+                    #     float(qoe * qoe_factor + trans_rsu.ee)
+                    # )
 
                 else:
                     qoe = min(process_qoe, trans_qoe)
                     qoe = max(qoe - qoe * hop_penalty_rate, 0)
 
                     if veh.job.job_type in rsus[veh.connected_rsu_id].caching_contents:
-                        qoe = min(qoe + qoe * 0.2, 1)
+                        qoe = min(qoe + qoe * 0.15, 1)
                     else:
-                        qoe = max(qoe - qoe * 0.05, 0)
+                        qoe = max(qoe - qoe * 0.1, 0)
 
                     veh.job.qoe = qoe
 
                     p_rsu.ee = max_ee * (1 - p_rsu.cp_usage)
                     trans_rsu.ee = max_ee * (1 - trans_rsu.cp_usage)
 
-                    rsu_trans_qoe_dict[veh.connected_rsu_id].append(
+                    trans_qoes[veh.connected_rsu_id].append(
                         float(qoe * qoe_factor + trans_rsu.ee)
                     )
+                    proc_qoes[p_rsu.id].append(float(qoe * qoe_factor + trans_rsu.ee))
 
-                    rsu_proc_qoe_dict[p_rsu.id].append(
-                        float(qoe * qoe_factor + trans_rsu.ee)
-                    )
+                    # rsu_trans_qoe_dict[veh.connected_rsu_id].append(
+                    #     float(qoe * qoe_factor + trans_rsu.ee)
+                    # )
+
+                    # rsu_proc_qoe_dict[p_rsu.id].append(
+                    #     float(qoe * qoe_factor + trans_rsu.ee)
+                    # )
+
                     # or give trans and process qoe spretely?
                     # rsu_utility_dict[veh.connected_rsu_id].append(
                     #     float(qoe * qoe_factor + trans_rsu.ee)
@@ -121,23 +151,33 @@ def calculate_box_utility(
                     # )
 
         # 计算被处理proc rsu的 avg qoe
-        num_proc_rus = len(rsu_proc_qoe_dict.keys())
+        num_proc_rus = len(proc_qoes.keys())
         # 没有进入if-else
         if num_proc_rus == 0:
             continue
         else:
-            # 展平
-            flattened_values = list(chain.from_iterable(rsu_proc_qoe_dict.values()))
-            sum_qoes = np.sum(flattened_values)
-            avg_qoe = sum_qoes / num_proc_rus
 
-            for rsu_id, qoes in rsu_proc_qoe_dict.items():
+            flattened_trans_qoes = list(chain.from_iterable(trans_qoes.values()))
+            avg_trans_qoes = np.mean(flattened_trans_qoes)
+            weighted_avg_trans_qoes = float(avg_trans_qoes * job_ratio_all)
+
+            flattened_proc_qoes = list(chain.from_iterable(proc_qoes.values()))
+            avg_proc_qoes = np.mean(flattened_trans_qoes)
+            weighted_avg_proc_qoes = float(avg_proc_qoes * job_ratio_all)
+
+            # 展平
+            # flattened_values = list(chain.from_iterable(rsu_proc_qoe_dict.values()))
+            # sum_qoes = np.sum(flattened_values)
+            # avg_qoe = sum_qoes / num_proc_rus
+
+            # 如果要把这个策略清理，需要修改proc_qoes
+            for rsu_id, qoes in proc_qoes.items():
                 if rsu_id == trans_rsu.id:
                     # 这个trans_rsu id理论上必有，且理论上必是这三个proc中的一个，重复会稀释，需要检查吗
-                    rsu_utility_dict[trans_rsu.id].append(avg_qoe)
+                    rsu_utility_dict[trans_rsu.id].append(weighted_avg_trans_qoes)
                     # 不重复导入
                 else:
-                    rsu_utility_dict[rsu_id].append(avg_qoe)
+                    rsu_utility_dict[rsu_id].append(weighted_avg_proc_qoes)
             # 将proc rsu的 avg qoe导入trans rsu
 
     return rsu_utility_dict

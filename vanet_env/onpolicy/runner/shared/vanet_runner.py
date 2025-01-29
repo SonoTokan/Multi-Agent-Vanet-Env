@@ -239,7 +239,6 @@ class VANETRunner(Runner):
             masks,
             bad_masks,
             active_masks,
-            reward_masks,
         )
 
     def log_train(self, train_infos, total_num_steps):
