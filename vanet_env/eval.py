@@ -24,7 +24,9 @@ class MultiAgentStrategies:
         """
         self.env = env
         self.num_agents = len(env.agents)
-        self.action_spaces = {agent: env.action_space(agent) for agent in env.agents}
+        self.action_spaces = {
+            agent: env.multi_discrete_action_space(agent) for agent in env.agents
+        }
 
     def random_strategy(self, obs, infos):
         """
@@ -61,11 +63,10 @@ class MultiAgentStrategies:
         #     actions[agent] = best_action
         actions = {}
         for agent in self.env.agents:
-            local_obs = obs[agent]['local_obs']
-            global_obs = obs[agent]['global_obs']
-            idles = infos[agent]['idle']
-            
-            
+            local_obs = obs[agent]["local_obs"]
+            global_obs = obs[agent]["global_obs"]
+            idles = infos[agent]["idle"]
+
         return [actions]
 
     def heuristic_strategy(self, obs):

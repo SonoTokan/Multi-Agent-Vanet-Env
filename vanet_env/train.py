@@ -100,6 +100,7 @@ def main(args):
     all_args.episode_length = env_max_step
     all_args.log_interval = 1
     all_args.algorithm_name = "rmappo"
+    all_args.experiment_name = "mulit_discrete"
 
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
@@ -145,6 +146,8 @@ def main(args):
             project=all_args.env_name,
             notes=socket.gethostname(),
             name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
             + "_"
             + str("nb")
             + "_seed"

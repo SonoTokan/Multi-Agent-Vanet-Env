@@ -58,10 +58,10 @@ def calculate_box_utility(
                 # 惩罚之
                 rsu_utility_dict[veh.connected_rsu_id].append(0.0)
 
+        job_ratio_all = 0.0
         # 一般是邻居
         for p_rsu in veh.job.processing_rsus:
             # 即single ratio
-            job_ratio_all = 0.0
 
             # qoe calculate after last for
             if p_rsu is not None:
@@ -76,13 +76,16 @@ def calculate_box_utility(
                 trans_qoes = defaultdict(list)
                 proc_qoes = defaultdict(list)
 
-                process_qoe = (
-                    min(
-                        p_rsu.real_cp_alloc[p_idx] / job_ratio,
-                        env_config.JOB_CP_REQUIRE,
+                if job_ratio != 0:
+                    process_qoe = (
+                        min(
+                            p_rsu.real_cp_alloc[p_idx] / job_ratio,
+                            env_config.JOB_CP_REQUIRE,
+                        )
+                        / env_config.JOB_CP_REQUIRE
                     )
-                    / env_config.JOB_CP_REQUIRE
-                )
+                else:
+                    process_qoe = 0.0
 
                 trans_rsu: Rsu = rsus[veh.connected_rsu_id]
 
@@ -156,6 +159,9 @@ def calculate_box_utility(
         if num_proc_rus == 0:
             continue
         else:
+
+            if job_ratio_all > 1.0:
+                assert NotImplementedError("Impossible value")
 
             flattened_trans_qoes = list(chain.from_iterable(trans_qoes.values()))
             avg_trans_qoes = np.mean(flattened_trans_qoes)

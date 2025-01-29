@@ -274,7 +274,7 @@ class Env(ParallelEnv):
             self.max_connections,  # 动作3: 每个连接的最大分配大小，可不用但是random会很高？
             self.num_cores,  # 动作4: 算力资源分配
             self.max_connections,  # 动作5: 通信资源分配
-            self.num_cores,  # 动作6: 总算力分配
+            1,  # 动作6: 总算力分配，只需一个动作
             self.max_caching,  # 动作7: 缓存策略，不需要bin因为本来就是离散的
         ]
 
@@ -362,7 +362,7 @@ class Env(ParallelEnv):
         # random
         random.seed(self.seed + self.timestep)
         # take action
-        self._beta_take_box_actions(actions)
+        self._beta_take_actions(actions)
 
         # caculate rewards
         # dev tag: calculate per timestep? or per fps?
@@ -518,11 +518,11 @@ class Env(ParallelEnv):
 
                 veh = self.vehicles[veh_id]
 
-                self_ratio = m_actions_self[idx] / self.bins
-                nb_ratio = m_actions_nb[idx] / self.bins
-                job_ratio = m_actions_job_ratio[idx] / self.bins
+                self_ratio = m_actions_self[m_idx] / self.bins
+                nb_ratio = m_actions_nb[m_idx] / self.bins
+                job_ratio = m_actions_job_ratio[m_idx] / self.bins
 
-                sum_ratio = self.ratio + nb_ratio
+                sum_ratio = self_ratio + nb_ratio
 
                 # 0就是不迁移，一般不会0
                 if sum_ratio >= 0:
@@ -577,22 +577,22 @@ class Env(ParallelEnv):
                             mig_ratio[valid_mask] = valid_ratios / total_ratio  # 归一化
 
                     # 更新
-                    for idx, rsu in enumerate(mig_rsus):
-                        if update_mask[idx]:
+                    for u_idx, rsu in enumerate(mig_rsus):
+                        if update_mask[u_idx]:
                             rsu: Rsu
-                            rsu.handling_jobs[idxs_in_rsus[idx]] = (
+                            rsu.handling_jobs[idxs_in_rsus[u_idx]] = (
                                 veh,
-                                float(mig_ratio[idx]),
+                                float(mig_ratio[u_idx]),
                             )
 
                     # 存入
-                    for idx, rsu in enumerate(mig_rsus):
-                        if store_mask[idx]:
+                    for s_idx, rsu in enumerate(mig_rsus):
+                        if store_mask[s_idx]:
                             rsu: Rsu
                             # connections有可能爆满
                             veh_disconnect = rsu.connections.queue_jumping(veh)
-                            rsu.handling_jobs.append((veh, float(mig_ratio[idx])))
-                            veh.job_process(idx, rsu)
+                            rsu.handling_jobs.append((veh, float(mig_ratio[s_idx])))
+                            veh.job_process(s_idx, rsu)
 
                             # 假如veh被断开连接
                             if veh_disconnect is not None:
@@ -631,10 +631,13 @@ class Env(ParallelEnv):
             dims = self.action_space_dims
             pre = sum(dims[:3])
             cp_alloc_actions = np.array(action[pre : pre + dims[3]]) / self.bins
+            # print(f"cp_alloc:{cp_alloc_actions}")
             pre = pre + dims[3]
             bw_alloc_actions = np.array(action[pre : pre + dims[4]]) / self.bins
+            # print(f"bw_alloc:{bw_alloc_actions}")
             pre = pre + dims[4]
             cp_usage = np.array(action[pre : pre + dims[5]]) / self.bins
+            # print(f"cp_usage:{cp_usage}")
             pre = pre + dims[5]
 
             # 已经转为box了

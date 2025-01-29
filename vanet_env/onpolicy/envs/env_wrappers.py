@@ -810,7 +810,7 @@ class ShareDummyVecEnv(ShareVecEnv):
 
         # is instance不够好用，box记得切换回来
         # if not isinstance(warp_action_space, Box):
-        nvec = env.action_space("").nvec - 1
+        nvec = warp_action_space.nvec - 1
         zeros = np.zeros_like(nvec)
         # 按列拼接
         new_nvec = np.column_stack((zeros, nvec))
