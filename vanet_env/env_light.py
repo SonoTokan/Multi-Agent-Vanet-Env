@@ -581,7 +581,9 @@ class Env(ParallelEnv):
                     in_rsu = np.array(in_rsu)
                     # 生成布尔掩码
                     update_mask = in_rsu  # 需要更新的 RSU
-                    store_mask = ~is_full & ~in_rsu  # 需要存入的 RSU，当且仅当没满或者没在rsu
+                    store_mask = (
+                        ~is_full & ~in_rsu
+                    )  # 需要存入的 RSU，当且仅当没满或者没在rsu
 
                     # 合并更新和存入的掩码
                     valid_mask = update_mask | store_mask  # 需要更新或存入的 RSU
@@ -823,6 +825,7 @@ class Env(ParallelEnv):
             if veh.connected_rsu_id is not None:
                 veh.pre_connected_rsu_id = veh.connected_rsu_id
                 veh.connected_rsu_id = idx
+                veh.first_time_caching = True
             else:
                 veh.pre_connected_rsu_id = idx
                 veh.connected_rsu_id = idx

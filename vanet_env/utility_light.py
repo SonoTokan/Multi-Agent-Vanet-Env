@@ -101,9 +101,12 @@ def calculate_box_utility(
                         qoe = max(qoe - qoe * 0.1, 0)
                         use_caching = False
 
-                    if use_caching and veh.connected_rsu_id != veh.pre_connected_rsu_id:
+                    # 只有第一次进来才append
+                    if use_caching and veh.first_time_caching:
+                        veh.first_time_caching = False
                         caching_hit_states[veh.connected_rsu_id].append(1)
                     else:
+                        veh.first_time_caching = False
                         caching_hit_states[veh.connected_rsu_id].append(0)
 
                     veh.job.qoe = qoe
@@ -128,11 +131,11 @@ def calculate_box_utility(
                         qoe = max(qoe - qoe * 0.1, 0)
                         use_caching = False
 
-                    # 只有第一次进来才append
-                    if use_caching and veh.connected_rsu_id != veh.pre_connected_rsu_id:
-
+                    if use_caching and veh.first_time_caching:
+                        veh.first_time_caching = False
                         caching_hit_states[veh.connected_rsu_id].append(1)
                     else:
+                        veh.first_time_caching = False
                         caching_hit_states[veh.connected_rsu_id].append(0)
 
                     veh.job.qoe = qoe

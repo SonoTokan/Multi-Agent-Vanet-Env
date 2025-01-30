@@ -666,6 +666,7 @@ class Vehicle:
         self.sumo = sumo
         self.seed = seed
         self.join_time = join_time
+        self.first_time_caching = True
 
         random.seed(self.seed)
 
