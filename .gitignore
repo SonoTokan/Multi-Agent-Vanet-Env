@@ -27,6 +27,7 @@ dev.env
 
 # 忽略日志和临时文件以及数据集
 *.restats
+data_*.csv
 temp/
 data/
 logs/
