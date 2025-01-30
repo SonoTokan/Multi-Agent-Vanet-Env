@@ -273,7 +273,7 @@ class Env(ParallelEnv):
         self.action_space_dims = [
             self.max_connections,  # 动作1: 自己任务分配比例
             self.max_connections,  # 动作2: 邻居任务分配比例，与上数相操作可得
-            self.max_connections,  # 动作3: 每个连接的最大分配大小，可不用但是random会很高？
+            self.max_connections,  # 动作3: 每个连接的最大分配大小，可不用但是如果不用random会很高？
             self.num_cores,  # 动作4: 算力资源分配
             self.max_connections,  # 动作5: 通信资源分配
             1,  # 动作6: 总算力分配，只需一个动作
@@ -900,7 +900,7 @@ class Env(ParallelEnv):
     def _calculate_box_rewards(self):
         rewards = {}
 
-        rsu_qoe_dict = utility_light.calculate_box_utility(
+        rsu_qoe_dict, caching_ratio_dict = utility_light.calculate_box_utility(
             vehs=self.vehicles,
             rsus=self.rsus,
             rsu_network=self.rsu_network,
@@ -910,21 +910,17 @@ class Env(ParallelEnv):
         )
 
         self.rsu_qoe_dict = rsu_qoe_dict
+        for rid, ratio in caching_ratio_dict.items():
+            self.rsus[rid].hit_ratios.append(ratio)
 
         for idx, agent in enumerate(self.agents):
             # dev tag: factor may need specify
             a = rsu_qoe_dict[idx]
+
             sum = 0
             if len(a) > 0:
                 for r in a:
                     sum += r
-                # rewards[agent] = sum / len(a)
-
-                # if isinstance(a, collections.abc.Iterable):
-                #     flattened = list(itertools.chain.from_iterable(a))
-                # else:
-                #     flattened = a
-                # rewards[agent] = np.mean(flattened)
                 try:
                     flattened = list(itertools.chain.from_iterable(a))
                 except TypeError:

@@ -289,8 +289,10 @@ class VANETRunner(Runner):
 
         eval_episode_rewards = []
         one_episode_rewards = []
+        # avg for every single agent
         qoes = []
         ees = []
+        hit_ratios = []
 
         eval_obs, eval_share_obs, dones, infos = self.eval_envs.reset()
 
@@ -331,6 +333,7 @@ class VANETRunner(Runner):
             # 只需计算in range car的qoe
             vehs_qoe = defaultdict(list)
             rsus_mean_qoe = defaultdict(list)
+            rsus_avg_hit_ratio = {}
 
             for rsu in self.eval_envs.envs[0].rsus:
                 for veh_id in rsu.range_connections:
@@ -338,11 +341,13 @@ class VANETRunner(Runner):
                         veh = self.eval_envs.envs[0].vehicles[veh_id]
                         vehs_qoe[rsu.id].append(veh.job.qoe)
                 rsus_mean_qoe[rsu.id] = np.nanmean(vehs_qoe[rsu.id])
+                rsus_avg_hit_ratio[rsu.id] = np.nanmean(rsu.hit_ratios)
 
             ee = np.mean([float(rsu.ee) for rsu in self.eval_envs.envs[0].rsus])
 
             qoes.append(list(rsus_mean_qoe.values()))
             ees.append(ee)
+            hit_ratios.append(list(rsus_avg_hit_ratio.values()))
 
             one_episode_rewards.append(eval_rewards)
 
@@ -374,17 +379,20 @@ class VANETRunner(Runner):
 
                 avg_qoe = np.nanmean(qoes)
                 avg_ee = np.mean(ees)
+                avg_hit_ratio = np.nanmean(hit_ratios)
 
                 print(
-                    (log_prefix + "avg qoe is {}, avg ee is {}.").format(
-                        avg_qoe, avg_ee
-                    )
+                    (
+                        log_prefix
+                        + "avg qoe is {}, avg ee is {}, avg caching hit ratio is {}."
+                    ).format(avg_qoe, avg_ee, avg_hit_ratio)
                 )
                 if self.use_wandb:
                     wandb.log(
                         {
                             log_prefix + "avg qoe": avg_qoe,
-                            log_prefix + "avg avg ee ": avg_ee,
+                            log_prefix + "avg ee ": avg_ee,
+                            log_prefix + "avg hit ratio ": avg_hit_ratio,
                         },
                         step=time_step,
                     )

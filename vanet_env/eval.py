@@ -1,3 +1,4 @@
+import math
 import sys
 
 import pandas as pd
@@ -105,31 +106,111 @@ class MultiAgentStrategies:
 
         return [actions]
 
-    def heuristic_strategy(self, obs):
+    def heuristic_strategy(self, obs, infos):
         """
+        heuristic_strategy makes self and neighboring rsu avg resources and avg balance
         A heuristic strategy balancing load among neighboring RSUs.
 
-        Returns:
-            actions: Dict mapping agent IDs to heuristic-based actions.
         """
-        actions = {}
+        actions = []
         for idx, agent in enumerate(self.env.agents):
+            agent_obs = obs[agent]
+            local_obs = agent_obs["local_obs"]
+            self_handlings = local_obs[1]
+            nb_state = local_obs[4]
 
-            obs = obs[idx]
-            local_obs = obs["local_obs"]
+            idle_nb_ratio = 1 - nb_state
+            idle_self_ratio = 1 - self_handlings
+            idle_all_ratio = idle_self_ratio + idle_nb_ratio
 
-            # Example heuristic: prioritize balancing load and minimizing connections queue.
-            # Simplified as assigning higher resources to underutilized RSUs.
-            neighbor_loads = local_obs[2:]  # Extract neighboring RSU loads.
-            target = np.argmin(neighbor_loads)  # Select the least loaded RSU.
+            queue_connections = local_obs[2]
+            connected = local_obs[3]
+            idle_connected = 1 - connected
 
-            action = np.zeros(self.action_spaces[agent].shape)
-            action[target] = 1.0  # Fully allocate resources to the selected RSU.
-            actions[agent] = action
+            if idle_all_ratio == 0:
+                # 几乎不可能都吃满，假如都吃满则均分，但是离散5区间动作不能均分，只能[3]=60%和[2]=40%
+                self_mratio = [int(0.6 * self.env.bins)] * self.env.action_space_dims[0]
+                nb_mratio = [int(0.4 * self.env.bins)] * self.env.action_space_dims[1]
+            else:
+                self_mratio = [
+                    math.floor(self_handlings / idle_all_ratio * self.env.bins)
+                ] * self.env.action_space_dims[0]
+                nb_mratio = [
+                    math.floor(idle_nb_ratio / idle_all_ratio * self.env.bins)
+                ] * self.env.action_space_dims[1]
+            # 顺便确认nb是否正常
+            # 根据idle_ratio确定分配值？
+            # choice里的值可以改为 math.floor(... * self.env.bins)
+            if idle_all_ratio >= 1:
+                # 高空闲倾向于分配高job_ratio和高alloc、cp_usage等
+                job_ratios = [np.random.choice([3, 4, 5])] * self.env.action_space_dims[
+                    2
+                ]
+                cp_alloc = [np.random.choice([3, 4, 5])] * self.env.action_space_dims[3]
+                # 节能选择
+                cp_usage = [np.random.choice([0, 1, 2])] * self.env.action_space_dims[5]
+            else:
+                job_ratios = [np.random.choice([0, 1, 2])] * self.env.action_space_dims[
+                    2
+                ]
+                cp_alloc = [np.random.choice([0, 1, 2])] * self.env.action_space_dims[3]
+                # 激进选择
+                cp_usage = [np.random.choice([3, 4, 5])] * self.env.action_space_dims[5]
+
+            # 空闲可支配大于需要的，bw策略可以激进
+            if idle_connected >= queue_connections:
+                bw_alloc = [np.random.choice([3, 4, 5])] * self.env.action_space_dims[4]
+            else:
+                bw_alloc = [np.random.choice([0, 1, 2])] * self.env.action_space_dims[4]
+
+            # 模拟FIFO，这里应该写在env里然后这里调用，时间匆忙，直接写外面了
+            # 模拟LRU，这里应该写在env里然后这里调用，时间匆忙，直接写外面了
+            # 模拟Random，这里应该写在env里然后这里调用，时间匆忙，直接写外面了
+            rsu = self.env.rsus[idx]
+            veh_id = rsu.range_connections.last()
+            # 根据max_caching改动这一项
+            if veh_id in self.env.vehicle_ids:
+                caching_content = [self.env.vehicles[veh_id].job_type]
+            else:
+                caching_content = [np.random.choice([i for i in range(self.env.bins)])]
+            action = (
+                self_mratio
+                + nb_mratio
+                + job_ratios
+                + cp_alloc
+                + bw_alloc
+                + cp_usage
+                + caching_content
+            )
+            actions.append(action)
 
         return [actions]
 
-    def run_experiment(self, strategy, steps=1000):
+    # def heuristic_strategy(self, obs):
+    #     """
+    #     A heuristic strategy balancing load among neighboring RSUs.
+
+    #     Returns:
+    #         actions: Dict mapping agent IDs to heuristic-based actions.
+    #     """
+    #     actions = {}
+    #     for idx, agent in enumerate(self.env.agents):
+
+    #         obs = obs[idx]
+    #         local_obs = obs["local_obs"]
+
+    #         # Example heuristic: prioritize balancing load and minimizing connections queue.
+    #         # Simplified as assigning higher resources to underutilized RSUs.
+    #         neighbor_loads = local_obs[2:]  # Extract neighboring RSU loads.
+    #         target = np.argmin(neighbor_loads)  # Select the least loaded RSU.
+
+    #         action = np.zeros(self.action_spaces[agent].shape)
+    #         action[target] = 1.0  # Fully allocate resources to the selected RSU.
+    #         actions[agent] = action
+
+    #     return [actions]
+
+    def run_experiment(self, strategy=None, strategy_name=None, steps=1000):
         """
         Run a simulation experiment with the given strategy.
 
@@ -140,19 +221,35 @@ class MultiAgentStrategies:
         Returns:
             metrics: Dict containing QoE, EE, and resource usage over time.
         """
+        if strategy is not None:
+            self.strategy = strategy
+        else:
+            if strategy_name == "random_strategy":
+                self.strategy = self.random_strategy
+            elif strategy_name == "heuristic_strategy":
+                self.strategy = self.heuristic_strategy
+            else:
+                self.strategy = self.random_strategy
         qoe_records = []
+
         ee_records = []
         resource_records = []
         reward_records = []
+        hit_ratio_records = []
 
         obs, _, infos = self.env.reset()
         for _ in range(steps):
-            actions = strategy(obs, infos)
+            actions = self.strategy(obs, infos)
             obs, rewards, _, _, infos = self.env.step(actions)
 
             # Gather metrics.
             qoe = np.mean([float(v.job.qoe) for v in self.env.vehicles.values()])
             ee = np.mean([float(rsu.ee) for rsu in self.env.rsus])
+
+            hit_ratio = np.nanmean(
+                [np.nanmean(rsu.hit_ratios) for rsu in self.env.rsus]
+            )
+
             # resource_usage = np.mean([rsu.cp_usage for rsu in self.env.rsus])
             if rewards != []:
                 reward = np.mean([reward for reward in rewards.values()])
@@ -161,11 +258,13 @@ class MultiAgentStrategies:
             ee_records.append(ee)
             # resource_records.append(resource_usage)
             reward_records.append(reward)
+            hit_ratio_records.append(hit_ratio)
 
         return {
             "QoE": qoe_records,
             "EE": ee_records,
             "Rewards": reward_records,
+            "Hit_ratio": hit_ratio_records,
         }
 
 
@@ -334,27 +433,31 @@ def rmappo(args):
 
 
 def other_policy():
+    exp_name = "multi_discrete"
+    # alg_name = "heuristic_strategy"
+    alg_name = "heuristic_strategy"
 
     step = 10240
     env = env_light.Env(None, max_step=step)
     strategies = MultiAgentStrategies(env)
-    metrics_random = strategies.run_experiment(strategies.random_strategy, steps=step)
-    print(f"random:{metrics_random}")
-    av = np.mean(metrics_random["Rewards"])
-    avg_qoe = np.mean(metrics_random["QoE"])
-    print(f"random_avg_step_reward:{av}")
-    print(f"random_avg_step_qoe:{avg_qoe}")
-    df = pd.DataFrame(metrics_random, columns=["QoE", "EE", "Rewards"])
+    metrics = strategies.run_experiment(strategy_name=alg_name, steps=step)
+
+    print(f"{alg_name}:{metrics}")
+    av = np.mean(metrics["Rewards"])
+    avg_qoe = np.mean(metrics["QoE"])
+    avg_hit_ratio = np.mean(metrics["Hit_ratio"])
+    print(f"{alg_name}_avg_step_reward:{av}")
+    print(f"{alg_name}_avg_step_qoe:{avg_qoe}")
+    print(f"{alg_name}_avg_step_hit_ratio:{avg_hit_ratio}")
+    df = pd.DataFrame(metrics, columns=["QoE", "EE", "Rewards", "Hit_ratio"])
 
     from datetime import datetime
 
     current_time = datetime.now()
 
-    exp_name = "multi_discrete"
-    alg_name = "random"
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
-    df.to_csv(f"data_{formatted_time}.csv", index=False)
-    print(f"CSV 文件已生成：data_{exp_name}_{alg_name}_{formatted_time}.csv.csv")
+    df.to_csv(f"data_{exp_name}_{alg_name}_{formatted_time}.csv", index=False)
+    print(f"CSV 文件已生成：data_{exp_name}_{alg_name}_{formatted_time}.csv")
     # metrics_greedy = strategies.run_experiment(strategies.greedy_strategy, steps=3600)
     # print(f"random:{metrics_greedy}")
 
@@ -365,7 +468,8 @@ def other_policy():
 
 
 def main(args):
-    rmappo(args=args)
+    # rmappo(args=args)
+    other_policy()
 
 
 if __name__ == "__main__":

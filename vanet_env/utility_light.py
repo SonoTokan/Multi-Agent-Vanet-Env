@@ -26,6 +26,7 @@ def calculate_box_utility(
     num_cores=env_config.NUM_CORES,
 ):
     rsu_utility_dict = defaultdict(list)
+    caching_hit_ratios = {}
     hop_penalty_rate = 0.1
     max_ee = 0.2
     qoe_factor = 1 - max_ee
@@ -49,12 +50,12 @@ def calculate_box_utility(
             min(veh.data_rate, env_config.JOB_DR_REQUIRE) / env_config.JOB_DR_REQUIRE
         )
         # n者的process qoe除以n
-        rsu_trans_qoe_dict = defaultdict(list)
-        rsu_proc_qoe_dict = defaultdict(list)
+        # rsu_trans_qoe_dict = defaultdict(list)
+        # rsu_proc_qoe_dict = defaultdict(list)
         trans_qoes = defaultdict(list)
         proc_qoes = defaultdict(list)
         # random理论上来说是0.20
-        caching_hit_ratios = {}
+        
         caching_hit_states = defaultdict(list)
 
         if veh.job.processing_rsus.is_empty():
@@ -159,7 +160,7 @@ def calculate_box_utility(
                     caching_hit_ratio = sum(caching_hit_states[rsu_id]) / len(
                         caching_hit_states[rsu_id]
                     )
-                    caching_hit_ratios[rsu_id].append(caching_hit_ratio)
+                    caching_hit_ratios[rsu_id] = caching_hit_ratio
 
                 if rsu_id == trans_rsu.id:
                     # 这个trans_rsu id理论上必有，且理论上必是这三个proc中的一个，重复会稀释，需要检查吗

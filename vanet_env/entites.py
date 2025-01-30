@@ -116,6 +116,15 @@ class OrderedQueueList:
     def is_empty(self):
         return self.size() == 0
 
+    def last(self):
+        """
+        寻找非none最后值
+        """
+        for v in reversed(self.olist):
+            if v is not None:
+                return v
+        return None
+
     def avg(self):
         """
         bug
@@ -268,6 +277,7 @@ class Rsu:
 
         self.qoe_list = []
         self.avg_u = 0
+        self.hit_ratios = []
 
     def check_idle(self, rsus, rsu_network):
         # 第一阶段：计算当前 RSU 的 idle 状态，应用并且返回所有邻居应该的状态
