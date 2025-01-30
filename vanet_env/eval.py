@@ -128,12 +128,12 @@ class MultiAgentStrategies:
             idle_connected = 1 - connected
 
             if idle_all_ratio == 0:
-                # 几乎不可能都吃满，假如都吃满则均分，但是离散5区间动作不能均分，只能[3]=60%和[2]=40%
-                self_mratio = [int(0.6 * self.env.bins)] * self.env.action_space_dims[0]
-                nb_mratio = [int(0.4 * self.env.bins)] * self.env.action_space_dims[1]
+                # 几乎不可能都吃满，假如都吃满则均分
+                self_mratio = [2] * self.env.action_space_dims[0]
+                nb_mratio = [2] * self.env.action_space_dims[1]
             else:
                 self_mratio = [
-                    math.floor(self_handlings / idle_all_ratio * self.env.bins)
+                    math.floor(idle_self_ratio / idle_all_ratio * self.env.bins)
                 ] * self.env.action_space_dims[0]
                 nb_mratio = [
                     math.floor(idle_nb_ratio / idle_all_ratio * self.env.bins)
@@ -143,25 +143,37 @@ class MultiAgentStrategies:
             # choice里的值可以改为 math.floor(... * self.env.bins)
             if idle_all_ratio >= 1:
                 # 高空闲倾向于分配高job_ratio和高alloc、cp_usage等
-                job_ratios = [np.random.choice([3, 4, 5])] * self.env.action_space_dims[
-                    2
+                job_ratios = [
+                    int(np.random.choice([3, 4]))
+                ] * self.env.action_space_dims[2]
+                cp_alloc = [int(np.random.choice([3, 4]))] * self.env.action_space_dims[
+                    3
                 ]
-                cp_alloc = [np.random.choice([3, 4, 5])] * self.env.action_space_dims[3]
                 # 节能选择
-                cp_usage = [np.random.choice([0, 1, 2])] * self.env.action_space_dims[5]
+                cp_usage = [
+                    int(np.random.choice([0, 1, 2]))
+                ] * self.env.action_space_dims[5]
             else:
-                job_ratios = [np.random.choice([0, 1, 2])] * self.env.action_space_dims[
-                    2
-                ]
-                cp_alloc = [np.random.choice([0, 1, 2])] * self.env.action_space_dims[3]
+                job_ratios = [
+                    int(np.random.choice([0, 1, 2]))
+                ] * self.env.action_space_dims[2]
+                cp_alloc = [
+                    int(np.random.choice([0, 1, 2]))
+                ] * self.env.action_space_dims[3]
                 # 激进选择
-                cp_usage = [np.random.choice([3, 4, 5])] * self.env.action_space_dims[5]
+                cp_usage = [int(np.random.choice([3, 4]))] * self.env.action_space_dims[
+                    5
+                ]
 
             # 空闲可支配大于需要的，bw策略可以激进
             if idle_connected >= queue_connections:
-                bw_alloc = [np.random.choice([3, 4, 5])] * self.env.action_space_dims[4]
+                bw_alloc = [int(np.random.choice([3, 4]))] * self.env.action_space_dims[
+                    4
+                ]
             else:
-                bw_alloc = [np.random.choice([0, 1, 2])] * self.env.action_space_dims[4]
+                bw_alloc = [
+                    int(np.random.choice([0, 1, 2]))
+                ] * self.env.action_space_dims[4]
 
             # 模拟FIFO，这里应该写在env里然后这里调用，时间匆忙，直接写外面了
             # 模拟LRU，这里应该写在env里然后这里调用，时间匆忙，直接写外面了
@@ -172,7 +184,10 @@ class MultiAgentStrategies:
             if veh_id in self.env.vehicle_ids:
                 caching_content = [self.env.vehicles[veh_id].job_type]
             else:
-                caching_content = [np.random.choice([i for i in range(self.env.bins)])]
+                caching_content = [
+                    int(np.random.choice([i for i in range(self.env.bins)]))
+                ]
+
             action = (
                 self_mratio
                 + nb_mratio
@@ -182,6 +197,13 @@ class MultiAgentStrategies:
                 + cp_usage
                 + caching_content
             )
+
+            if self.action_spaces[agent].contains(action):
+                pass
+            else:
+                print("action 不在 action_space 内")
+                assert IndexError("...")
+
             actions.append(action)
 
         return [actions]
@@ -244,21 +266,26 @@ class MultiAgentStrategies:
 
             # Gather metrics.
             qoe = np.mean([float(v.job.qoe) for v in self.env.vehicles.values()])
-            ee = np.mean([float(rsu.ee) for rsu in self.env.rsus])
-
-            hit_ratio = np.nanmean(
-                [np.nanmean(rsu.hit_ratios) for rsu in self.env.rsus]
-            )
+            qoe_real = []
+            ees = []
+            hit_ratios = []
+            for rsu in self.env.rsus:
+                for vid in rsu.range_connections:
+                    if vid in self.env.vehicle_ids:
+                        qoe_real.append(float(self.env.vehicles[vid].job.qoe))
+                        for hit_ratio in rsu.hit_ratios:
+                            hit_ratios.append(hit_ratio)
+                        ees.append(float(rsu.ee))
 
             # resource_usage = np.mean([rsu.cp_usage for rsu in self.env.rsus])
             if rewards != []:
                 reward = np.mean([reward for reward in rewards.values()])
 
-            qoe_records.append(qoe)
-            ee_records.append(ee)
+            qoe_records.append(np.mean(qoe_real))
+            ee_records.append(np.mean(ees))
             # resource_records.append(resource_usage)
             reward_records.append(reward)
-            hit_ratio_records.append(hit_ratio)
+            hit_ratio_records.append(np.nanmean(hit_ratios))
 
         return {
             "QoE": qoe_records,

@@ -798,7 +798,7 @@ class DummyVecEnv(ShareVecEnv):
 
 
 class ShareDummyVecEnv(ShareVecEnv):
-    def __init__(self, env_fns, is_discrete):
+    def __init__(self, env_fns, is_discrete=True):
         from onpolicy.utils.multi_discrete import MultiDiscrete
         from gymnasium.spaces import Box
 

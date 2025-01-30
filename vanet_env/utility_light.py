@@ -55,7 +55,7 @@ def calculate_box_utility(
         trans_qoes = defaultdict(list)
         proc_qoes = defaultdict(list)
         # random理论上来说是0.20
-        
+
         caching_hit_states = defaultdict(list)
 
         if veh.job.processing_rsus.is_empty():
@@ -74,6 +74,7 @@ def calculate_box_utility(
                 p_rsu: Rsu
                 p_idx = p_rsu.handling_jobs.index((veh, 0))
                 job_ratio = p_rsu.handling_jobs[p_idx][1]
+                # job ratio means alloc job size
                 job_ratio_all += job_ratio
 
                 if job_ratio != 0:

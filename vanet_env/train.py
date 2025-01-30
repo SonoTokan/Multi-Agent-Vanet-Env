@@ -20,7 +20,7 @@ from vanet_env.onpolicy.envs.env_wrappers import (
 
 env_max_step = 10240
 max_step = env_max_step * 1000
-is_discrete = False
+is_discrete = True
 
 
 def make_train_env():
@@ -33,46 +33,23 @@ def make_train_env():
         return init_env
 
     return ShareDummyVecEnv([get_env_fn()], is_discrete=is_discrete)
-    # if all_args.n_rollout_threads == 1:
-    #     return ShareDummyVecEnv([get_env_fn()])
-    # else:
-    #     return ShareSubprocVecEnv(
-    #         [get_env_fn(i) for i in range(all_args.n_rollout_threads)]
-    #     )
 
 
 def make_eval_env():
     def get_env_fn():
         def init_env():
-            env = Env(None)
+            env = Env(None, max_step=env_max_step, is_discrete=is_discrete)
             return env
 
         return init_env
 
-    return ShareDummyVecEnv([get_env_fn()])
-    # if all_args.n_eval_rollout_threads == 1:
-    #     return ShareDummyVecEnv([get_env_fn])
-    # else:
-    #     return ShareSubprocVecEnv(
-    #         [get_env_fn(i) for i in range(all_args.n_eval_rollout_threads)]
-    #     )
+    return ShareDummyVecEnv([get_env_fn()], is_discrete=is_discrete)
 
 
 def parse_args(args, parser):
     parser.add_argument(
         "--map_name", type=str, default="Seattle", help="Which sumo map to run on"
     )
-    # parser.add_argument("--add_move_state", action="store_true", default=False)
-    # parser.add_argument("--add_local_obs", action="store_true", default=False)
-    # parser.add_argument("--add_distance_state", action="store_true", default=False)
-    # parser.add_argument("--add_enemy_action_state", action="store_true", default=False)
-    # parser.add_argument("--add_agent_id", action="store_true", default=False)
-    # parser.add_argument("--add_visible_state", action="store_true", default=False)
-    # parser.add_argument("--add_xy_state", action="store_true", default=False)
-    # parser.add_argument("--use_state_agent", action="store_false", default=True)
-    # parser.add_argument("--use_mustalive", action="store_false", default=True)
-    # parser.add_argument("--add_center_xy", action="store_false", default=True)
-    # parser.add_argument("--sight_range", type=int, default=9)
 
     all_args = parser.parse_known_args(args)[0]
 
@@ -85,7 +62,8 @@ def main(args):
     n_training_threads = 1
     cuda_deterministic = False
     env_name = "vanet"
-    alg_name = "rMAPPO"
+    alg_name = "rmappo"
+    exp_prefix = "time_splitted"
     use_wandb = True
     seed = SEED
     use_eval = False
@@ -98,10 +76,12 @@ def main(args):
     print("seed is :", all_args.seed)
 
     all_args.num_env_steps = max_step
-    all_args.episode_length = env_max_step
+    all_args.episode_length = env_max_step // 10
     all_args.log_interval = 1
-    all_args.algorithm_name = "rmappo"
-    all_args.experiment_name = "Mulit_discrete" if is_discrete else "Box"
+    all_args.algorithm_name = alg_name
+    all_args.experiment_name = (
+        exp_prefix + "_" + "Mulit_discrete" if is_discrete else exp_prefix + "_" + "Box"
+    )
 
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
@@ -184,23 +164,18 @@ def main(args):
 
     # env
     envs = make_train_env()
-    # eval_envs = make_eval_env()
+    eval_envs = make_eval_env()
     num_agents = envs.num_agents
 
     config = {
         "all_args": all_args,
         "envs": envs,
-        # "eval_envs": eval_envs,
+        "eval_envs": eval_envs,
         "num_agents": num_agents,
         "device": device,
         "run_dir": run_dir,
     }
 
-    # run experiments
-    # if all_args.share_policy:
-    #     from onpolicy.runner.shared.smac_runner import SMACRunner as Runner
-    # else:
-    #     from onpolicy.runner.separated.smac_runner import SMACRunner as Runner
     from vanet_env.onpolicy.runner.shared.vanet_runner2 import (
         VANETRunner as Runner,
     )
@@ -210,8 +185,8 @@ def main(args):
 
     # post process
     envs.close()
-    # if use_eval and eval_envs is not envs:
-    #     eval_envs.close()
+    if use_eval and eval_envs is not envs:
+        eval_envs.close()
 
     if use_wandb:
         run.finish()

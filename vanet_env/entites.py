@@ -396,8 +396,12 @@ class Rsu:
 
     def frame_cache_content(self, caching_decision, num_content):
         # caching_decision = math.floor(caching_decision * num_content)
-        caching_decision = caching_decision
-        self.caching_contents.queue_jumping(caching_decision)
+        if isinstance(caching_decision, list) or isinstance(caching_decision, np.array):
+            for c in caching_decision:
+                self.caching_contents.queue_jumping(c)
+        else:
+            caching_decision = caching_decision
+            self.caching_contents.queue_jumping(caching_decision)
 
     # notice, cal utility only when connect this rsu
     def frame_allocate_bandwidth(

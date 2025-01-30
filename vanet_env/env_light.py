@@ -513,7 +513,7 @@ class Env(ParallelEnv):
             nb_rsu2: Rsu = self.rsus[self.rsu_network[rsu.id][1]]
 
             # 取样，这个list可以改为其他
-            for m_idx in m_actions_self:
+            for m_idx, ma in enumerate(m_actions_self):
 
                 veh_id: Vehicle = rsu.connections_queue.remove(index=m_idx)
 
@@ -559,9 +559,18 @@ class Env(ParallelEnv):
                     # 假如已在里面只需调整ratio，理论上到这一步基本不会失败因为至少有个非full
                     # 或者至少在一个里面，但是存在只分配成功一个位置，因此需要最后计算ratio
 
+                    self_ratio = self_ratio / sum_ratio
+                    nb_ratio = nb_ratio / sum_ratio
+
                     mig_rsus = np.array([rsu, nb_rsu1, nb_rsu2])
 
-                    mig_ratio = np.array([self_ratio, nb_ratio / 2, nb_ratio / 2])
+                    mig_ratio = np.array(
+                        [
+                            self_ratio,
+                            nb_ratio / 2,
+                            nb_ratio / 2,
+                        ]
+                    )
                     # 能到这里说明三个rsu至少一个没空或至少有一个在三个rsu里
                     # is_full 为rsu是否满，in_rsu为是否在里面
                     is_full = np.array(is_full)
@@ -586,7 +595,7 @@ class Env(ParallelEnv):
                             rsu: Rsu
                             rsu.handling_jobs[idxs_in_rsus[u_idx]] = (
                                 veh,
-                                float(mig_ratio[u_idx]),
+                                float(mig_ratio[u_idx] * job_ratio),
                             )
 
                     # 存入
@@ -595,7 +604,7 @@ class Env(ParallelEnv):
                             rsu: Rsu
                             # connections有可能爆满
                             veh_disconnect = rsu.connections.queue_jumping(veh)
-                            rsu.handling_jobs.append((veh, float(mig_ratio[s_idx])))
+                            rsu.handling_jobs.append((veh, float(mig_ratio[s_idx] * job_ratio)))
                             veh.job_process(s_idx, rsu)
 
                             # 假如veh被断开连接
@@ -604,7 +613,15 @@ class Env(ParallelEnv):
                                 veh_disconnect.job_deprocess(
                                     self.rsus, self.rsu_network
                                 )
-            pass
+                else:
+                    # cloud
+                    veh.is_cloud = True
+                    veh.job.is_cloud = True
+                    if not veh.job.processing_rsus.is_empty():
+                        veh.job.processing_rsus
+                        veh.job.processing_rsus.clear()
+
+                pass
 
         # env 0
         actions = actions[0]
