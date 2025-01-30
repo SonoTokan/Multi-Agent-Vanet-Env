@@ -304,9 +304,11 @@ class Rsu:
 
     def remove_job(self, elem):
         if isinstance(elem, tuple):
-            self.handling_jobs.remove(elem)
+            if elem in self.handling_jobs:
+                self.handling_jobs.remove(elem)
         else:
-            self.handling_jobs.remove((elem, 0))
+            if elem in self.handling_jobs:
+                self.handling_jobs.remove((elem, 0))
 
     def box_alloc_cp(self, alloc_cp_list, cp_usage):
         # 0 - 1
@@ -396,7 +398,9 @@ class Rsu:
 
     def frame_cache_content(self, caching_decision, num_content):
         # caching_decision = math.floor(caching_decision * num_content)
-        if isinstance(caching_decision, list) or isinstance(caching_decision, np.array):
+        if isinstance(caching_decision, list) or isinstance(
+            caching_decision, np.ndarray
+        ):
             for c in caching_decision:
                 self.caching_contents.queue_jumping(c)
         else:

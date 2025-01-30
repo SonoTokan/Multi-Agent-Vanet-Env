@@ -461,8 +461,8 @@ def rmappo(args):
 
 def other_policy():
     exp_name = "multi_discrete"
+    alg_name = "random_strategy"
     # alg_name = "heuristic_strategy"
-    alg_name = "heuristic_strategy"
 
     step = 10240
     env = env_light.Env(None, max_step=step)

@@ -503,6 +503,9 @@ class Env(ParallelEnv):
             if rsu.connections_queue.is_empty():
                 return
 
+            if self.timestep == 141:
+                pass
+
             m_actions_self = action[: self.action_space_dims[0]]
             pre = self.action_space_dims[0]
             m_actions_nb = action[pre : pre + self.action_space_dims[1]]
@@ -529,7 +532,7 @@ class Env(ParallelEnv):
                 sum_ratio = self_ratio + nb_ratio
 
                 # 0就是不迁移，一般不会0
-                if sum_ratio >= 0:
+                if sum_ratio > 0:
 
                     # 这种都可以靠遍历，如果k>3 需要修改逻辑
                     is_full = [
@@ -552,7 +555,8 @@ class Env(ParallelEnv):
                             veh.is_cloud = True
                             veh.job.is_cloud = True
                             if not veh.job.processing_rsus.is_empty():
-                                veh.job.processing_rsus
+                                for rsu in veh.job.processing_rsus:
+                                    rsu.remove_job(veh)
                                 veh.job.processing_rsus.clear()
                             continue
 
@@ -576,8 +580,8 @@ class Env(ParallelEnv):
                     is_full = np.array(is_full)
                     in_rsu = np.array(in_rsu)
                     # 生成布尔掩码
-                    update_mask = is_full & in_rsu  # 需要更新的 RSU
-                    store_mask = ~is_full & ~in_rsu  # 需要存入的 RSU
+                    update_mask = in_rsu  # 需要更新的 RSU
+                    store_mask = ~is_full & ~in_rsu  # 需要存入的 RSU，当且仅当没满或者没在rsu
 
                     # 合并更新和存入的掩码
                     valid_mask = update_mask | store_mask  # 需要更新或存入的 RSU
@@ -604,7 +608,9 @@ class Env(ParallelEnv):
                             rsu: Rsu
                             # connections有可能爆满
                             veh_disconnect = rsu.connections.queue_jumping(veh)
-                            rsu.handling_jobs.append((veh, float(mig_ratio[s_idx] * job_ratio)))
+                            rsu.handling_jobs.append(
+                                (veh, float(mig_ratio[s_idx] * job_ratio))
+                            )
                             veh.job_process(s_idx, rsu)
 
                             # 假如veh被断开连接
@@ -618,7 +624,8 @@ class Env(ParallelEnv):
                     veh.is_cloud = True
                     veh.job.is_cloud = True
                     if not veh.job.processing_rsus.is_empty():
-                        veh.job.processing_rsus
+                        for rsu in veh.job.processing_rsus:
+                            rsu.remove_job(veh)
                         veh.job.processing_rsus.clear()
 
                 pass
@@ -670,171 +677,6 @@ class Env(ParallelEnv):
 
             rsu.frame_cache_content(a, self.max_content)
 
-    def _beta_take_box_actions(self, actions):
-        """ """
-
-        def _mig_job(rsu: Rsu, action, idx):
-            # 这个大时间步内已经分配完毕了
-            # 如若下个大时间步又需分配（理论上来说没出rsu范围），仅需调整ratio就行，
-            # debug这里可以看vehs是否出去
-            if rsu.connections_queue.is_empty():
-                return
-
-            m_actions = action[
-                : (num_nb + 1) * self.max_connections + self.max_connections
-            ]
-
-            neighbor_num = len(self.rsu_network[0])
-            nb_rsu1_id, nb_rsu2_id = self.rsu_network[idx]
-            nb_rsu1: Rsu = self.rsus[nb_rsu1_id]
-            nb_rsu2: Rsu = self.rsus[nb_rsu2_id]
-
-            # 任务分配
-            # 滑动窗口，步长为num_nb + 1
-            for m_idx in range(0, len(m_actions), num_nb + 1):
-
-                veh_id: Vehicle = rsu.connections_queue.remove(index=m_idx)
-
-                if veh_id is None:
-                    continue
-
-                veh = self.vehicles[veh_id]
-
-                m_action = m_actions[m_idx : m_idx + num_nb + 1]
-                single_ratio = m_actions[
-                    (neighbor_num + 1) * self.max_connections
-                    + m_idx : (neighbor_num + 1) * self.max_connections
-                    + m_idx
-                    + 1
-                ]
-                sum_ratio = sum(m_action)
-
-                # 0就是不迁移，一般不会0
-                if sum_ratio >= 0:
-
-                    # 这种都可以靠遍历，如果k>3 需要修改逻辑
-                    is_full = [
-                        rsu.handling_jobs.is_full(),
-                        nb_rsu1.handling_jobs.is_full(),
-                        nb_rsu2.handling_jobs.is_full(),
-                    ]
-
-                    index_in_rsu = rsu.handling_jobs.index((veh, 0))
-                    index_in_nb_rsu1 = nb_rsu1.handling_jobs.index((veh, 0))
-                    index_in_nb_rsu2 = nb_rsu2.handling_jobs.index((veh, 0))
-                    idxs_in_rsus = [index_in_rsu, index_in_nb_rsu1, index_in_nb_rsu2]
-                    in_rsu = [elem is not None for elem in idxs_in_rsus]
-
-                    # 理论上到这里的都是在范围内，可以debug看下是不是
-                    # 三个都满了直接cloud
-                    if all(is_full):
-                        # 都满了，却不在这三个任意一个
-                        if not any(in_rsu):
-                            veh.is_cloud = True
-                            veh.job.is_cloud = True
-                            if not veh.job.processing_rsus.is_empty():
-                                veh.job.processing_rsus
-                                veh.job.processing_rsus.clear()
-                            continue
-
-                    self_ratio = m_action[0] * single_ratio / sum_ratio
-                    nb1_ratio = m_action[1] * single_ratio / sum_ratio
-                    nb2_ratio = m_action[2] * single_ratio / sum_ratio
-
-                    # 假如已在里面只需调整ratio，理论上到这一步基本不会失败因为至少有个非full
-                    # 或者至少在一个里面，但是存在只分配成功一个位置，因此需要最后计算ratio
-
-                    mig_rsus = np.array([rsu, nb_rsu1, nb_rsu2])
-
-                    mig_ratio = np.array([self_ratio, nb1_ratio, nb2_ratio])
-                    # 能到这里说明三个rsu至少一个没空或至少有一个在三个rsu里
-                    # is_full 为rsu是否满，in_rsu为是否在里面
-                    is_full = np.array(is_full)
-                    in_rsu = np.array(in_rsu)
-                    # 生成布尔掩码
-                    update_mask = is_full & in_rsu  # 需要更新的 RSU
-                    store_mask = ~is_full & ~in_rsu  # 需要存入的 RSU
-
-                    # 合并更新和存入的掩码
-                    valid_mask = update_mask | store_mask  # 需要更新或存入的 RSU
-
-                    # 只对满足条件的 RSU 的 mig_ratio 进行归一化
-                    if np.any(valid_mask):  # 如果有需要更新或存入的 RSU
-                        valid_ratios = mig_ratio[valid_mask]  # 提取满足条件的 mig_ratio
-                        total_ratio = np.sum(valid_ratios)  # 计算总和
-                        if total_ratio > 0:  # 避免除以零
-                            mig_ratio[valid_mask] = valid_ratios / total_ratio  # 归一化
-
-                    # 更新
-                    for idx, rsu in enumerate(mig_rsus):
-                        if update_mask[idx]:
-                            rsu: Rsu
-                            rsu.handling_jobs[idxs_in_rsus[idx]] = (
-                                veh,
-                                float(mig_ratio[idx]),
-                            )
-
-                    # 存入
-                    for idx, rsu in enumerate(mig_rsus):
-                        if store_mask[idx]:
-                            rsu: Rsu
-                            # connections有可能爆满
-                            veh_disconnect = rsu.connections.queue_jumping(veh)
-                            rsu.handling_jobs.append((veh, float(mig_ratio[idx])))
-                            veh.job_process(idx, rsu)
-
-                            # 假如veh被断开连接
-                            if veh_disconnect is not None:
-                                veh_disconnect: Vehicle
-                                veh_disconnect.job_deprocess(
-                                    self.rsus, self.rsu_network
-                                )
-
-        # env 0
-        actions = actions[0]
-
-        # 将 actions 和它们的原始索引组合成元组列表
-        indexed_actions = list(enumerate(actions))
-
-        # 随机打乱元组列表或用什么权重方法，
-        # 因为如果按顺序后面的车基本不可能能安排到邻居节点
-        random.shuffle(indexed_actions)
-        num_nb = len(self.rsu_network[0])
-
-        # hadling job clear, not sure need or not，
-        # 难道只有车出去范围了才清理？有没有其他情况？
-
-        for idx, action in indexed_actions:
-            rsu: Rsu = self.rsus[idx]
-
-            if rsu.idle:
-                continue
-
-            _mig_job(rsu=rsu, action=action, idx=idx)
-
-        for idx, action in indexed_actions:
-            rsu: Rsu = self.rsus[idx]
-
-            if rsu.idle:
-                continue
-
-            # resource alloc after all handling
-            pre = (num_nb + 1) * self.max_connections + self.max_connections
-            cp_alloc_actions = action[pre : pre + self.num_cores]
-            pre = pre + self.num_cores
-            bw_alloc_actions = action[pre : pre + self.max_connections]
-            pre = pre + self.max_connections
-            cp_usage = action[pre : pre + 1]
-            pre = pre + 1
-
-            rsu.box_alloc_cp(alloc_cp_list=cp_alloc_actions, cp_usage=cp_usage)
-            rsu.box_alloc_bw(alloc_bw_list=bw_alloc_actions, veh_ids=self.vehicle_ids)
-
-            # independ caching policy here, 也可以每个时间步都caching
-            a = action[pre:]
-
-            rsu.frame_cache_content(a, self.max_content)
-
     def _beta_update_box_observations(self, time_step):
         observations = {}
 
@@ -842,6 +684,9 @@ class Env(ParallelEnv):
         usage_all = 0
         num_handling_job = 0
         count = 0
+
+        if time_step == 141:
+            pass
 
         for idx, a in enumerate(self.agents):
             rsu = self.rsus[idx]

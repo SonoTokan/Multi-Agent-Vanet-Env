@@ -62,7 +62,7 @@ def main(args):
     n_training_threads = 1
     cuda_deterministic = False
     env_name = "vanet"
-    alg_name = "rmappo"
+    alg_name = "ippo"
     exp_prefix = "time_splitted"
     use_wandb = True
     seed = SEED

@@ -92,13 +92,18 @@ def calculate_box_utility(
 
                 if p_rsu.id == veh.connected_rsu_id:
                     qoe = min(process_qoe, trans_qoe)
-
+                    use_caching = False
                     # caching debug
                     if veh.job.job_type in trans_rsu.caching_contents:
                         qoe = min(qoe + qoe * 0.15, 1)
-                        caching_hit_states[veh.connected_rsu_id].append(1)
+                        use_caching = True
                     else:
                         qoe = max(qoe - qoe * 0.1, 0)
+                        use_caching = False
+
+                    if use_caching and veh.connected_rsu_id != veh.pre_connected_rsu_id:
+                        caching_hit_states[veh.connected_rsu_id].append(1)
+                    else:
                         caching_hit_states[veh.connected_rsu_id].append(0)
 
                     veh.job.qoe = qoe
@@ -117,9 +122,17 @@ def calculate_box_utility(
                     if veh.job.job_type in rsus[veh.connected_rsu_id].caching_contents:
 
                         qoe = min(qoe + qoe * 0.15, 1)
-                        caching_hit_states[veh.connected_rsu_id].append(1)
+                        use_caching = True
+
                     else:
                         qoe = max(qoe - qoe * 0.1, 0)
+                        use_caching = False
+
+                    # 只有第一次进来才append
+                    if use_caching and veh.connected_rsu_id != veh.pre_connected_rsu_id:
+
+                        caching_hit_states[veh.connected_rsu_id].append(1)
+                    else:
                         caching_hit_states[veh.connected_rsu_id].append(0)
 
                     veh.job.qoe = qoe
