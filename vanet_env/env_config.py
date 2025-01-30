@@ -67,6 +67,8 @@ DATA_RATE_TR = 40
 NUM_CORES = 5
 # max downlink connections, better to equal cores and 最好能被fps整除
 MAX_CONNECTIONS = 5
+# ee ratio i.e. MAX_EE - EE = cp_usage
+MAX_EE = 0.2
 
 """
 Vehicle Config

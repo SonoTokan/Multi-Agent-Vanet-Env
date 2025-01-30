@@ -71,8 +71,10 @@ class Env(ParallelEnv):
         fps=10,
         max_step=36000,  # need focus on fps
         seed=env_config.SEED,
+        is_discrete=True,
     ):
 
+        self.is_discrete = is_discrete
         self.num_rsus = env_config.NUM_RSU
         # self.max_size = config.MAP_SIZE  # deprecated
         self.road_width = env_config.ROAD_WIDTH
@@ -362,8 +364,10 @@ class Env(ParallelEnv):
         # random
         random.seed(self.seed + self.timestep)
         # take action
-        self._beta_take_actions(actions)
-
+        if self.is_discrete:
+            self._beta_take_actions(actions)
+        else:
+            self._beta_take_box_actions(actions)
         # caculate rewards
         # dev tag: calculate per timestep? or per fps?
         # calculate frame reward!

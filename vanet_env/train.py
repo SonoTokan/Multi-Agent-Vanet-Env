@@ -20,18 +20,19 @@ from vanet_env.onpolicy.envs.env_wrappers import (
 
 env_max_step = 10240
 max_step = env_max_step * 1000
+is_discrete = False
 
 
 def make_train_env():
     def get_env_fn():
         def init_env():
-            env = Env(None, max_step=env_max_step)
+            env = Env(None, max_step=env_max_step, is_discrete=is_discrete)
 
             return env
 
         return init_env
 
-    return ShareDummyVecEnv([get_env_fn()])
+    return ShareDummyVecEnv([get_env_fn()], is_discrete=is_discrete)
     # if all_args.n_rollout_threads == 1:
     #     return ShareDummyVecEnv([get_env_fn()])
     # else:
@@ -61,17 +62,17 @@ def parse_args(args, parser):
     parser.add_argument(
         "--map_name", type=str, default="Seattle", help="Which sumo map to run on"
     )
-    parser.add_argument("--add_move_state", action="store_true", default=False)
-    parser.add_argument("--add_local_obs", action="store_true", default=False)
-    parser.add_argument("--add_distance_state", action="store_true", default=False)
-    parser.add_argument("--add_enemy_action_state", action="store_true", default=False)
-    parser.add_argument("--add_agent_id", action="store_true", default=False)
-    parser.add_argument("--add_visible_state", action="store_true", default=False)
-    parser.add_argument("--add_xy_state", action="store_true", default=False)
-    parser.add_argument("--use_state_agent", action="store_false", default=True)
-    parser.add_argument("--use_mustalive", action="store_false", default=True)
-    parser.add_argument("--add_center_xy", action="store_false", default=True)
-    parser.add_argument("--sight_range", type=int, default=9)
+    # parser.add_argument("--add_move_state", action="store_true", default=False)
+    # parser.add_argument("--add_local_obs", action="store_true", default=False)
+    # parser.add_argument("--add_distance_state", action="store_true", default=False)
+    # parser.add_argument("--add_enemy_action_state", action="store_true", default=False)
+    # parser.add_argument("--add_agent_id", action="store_true", default=False)
+    # parser.add_argument("--add_visible_state", action="store_true", default=False)
+    # parser.add_argument("--add_xy_state", action="store_true", default=False)
+    # parser.add_argument("--use_state_agent", action="store_false", default=True)
+    # parser.add_argument("--use_mustalive", action="store_false", default=True)
+    # parser.add_argument("--add_center_xy", action="store_false", default=True)
+    # parser.add_argument("--sight_range", type=int, default=9)
 
     all_args = parser.parse_known_args(args)[0]
 
@@ -100,7 +101,7 @@ def main(args):
     all_args.episode_length = env_max_step
     all_args.log_interval = 1
     all_args.algorithm_name = "rmappo"
-    all_args.experiment_name = "mulit_discrete"
+    all_args.experiment_name = "Mulit_discrete" if is_discrete else "Box"
 
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
@@ -212,11 +213,11 @@ def main(args):
     # if use_eval and eval_envs is not envs:
     #     eval_envs.close()
 
-    # if use_wandb:
-    #     run.finish()
-    # else:
-    #     runner.writter.export_scalars_to_json(str(runner.log_dir + "/summary.json"))
-    #     runner.writter.close()
+    if use_wandb:
+        run.finish()
+    else:
+        runner.writter.export_scalars_to_json(str(runner.log_dir + "/summary.json"))
+        runner.writter.close()
 
 
 if __name__ == "__main__":

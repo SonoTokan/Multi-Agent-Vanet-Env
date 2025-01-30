@@ -21,8 +21,8 @@ class Runner(object):
 
         self.all_args = config["all_args"]
         self.envs = config["envs"]
-        if False:
-            self.eval_envs = config["eval_envs"]
+
+        self.eval_envs = config["eval_envs"]
         self.device = config["device"]
         self.num_agents = config["num_agents"]
         if config.__contains__("render_envs"):
@@ -93,8 +93,8 @@ class Runner(object):
         self.trainer = TrainAlgo(self.all_args, self.policy, device=self.device)
 
         if self.model_dir is not None:
-            # self.restore()
-            self.restore_timestep(timestep=5526400)
+            self.restore()
+            # self.restore_timestep(timestep=5526400)
 
         # buffer
         self.buffer = SharedReplayBuffer(
