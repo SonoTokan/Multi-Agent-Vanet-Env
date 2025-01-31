@@ -61,9 +61,10 @@ def main(args):
 
     n_training_threads = 1
     cuda_deterministic = False
+    time_spilit = False
     env_name = "vanet"
-    alg_name = "ippo"
-    exp_prefix = "time_splitted"
+    alg_name = "rmappo"
+    exp_prefix = "time_all" if not time_spilit else "time_spilitted"
     use_wandb = True
     seed = SEED
     use_eval = False
@@ -76,7 +77,7 @@ def main(args):
     print("seed is :", all_args.seed)
 
     all_args.num_env_steps = max_step
-    all_args.episode_length = env_max_step // 10
+    all_args.episode_length = env_max_step if not time_spilit else env_max_step // 10
     all_args.log_interval = 1
     all_args.algorithm_name = alg_name
     all_args.experiment_name = (

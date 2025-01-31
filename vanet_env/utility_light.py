@@ -38,6 +38,9 @@ def calculate_box_utility(
     # 由veh计算，
     # 只需计算in range car的qoe，这里可修改
     for v_id, veh in vehs.items():
+        if veh.vehicle_id not in rsus[veh.connected_rsu_id].range_connections:
+            continue
+
         veh: Vehicle
 
         if veh.is_cloud:
@@ -80,7 +83,7 @@ def calculate_box_utility(
                 if job_ratio != 0:
                     process_qoe = (
                         min(
-                            p_rsu.real_cp_alloc[p_idx] / job_ratio,
+                            p_rsu.real_cp_alloc[p_idx % p_rsu.max_cores] / job_ratio,
                             env_config.JOB_CP_REQUIRE,
                         )
                         / env_config.JOB_CP_REQUIRE

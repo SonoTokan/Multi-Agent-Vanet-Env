@@ -146,6 +146,11 @@ class Env(ParallelEnv):
         self.possible_agents = list.copy(list_agents)
 
         self.timestep = 0
+        # 异常监测
+        # 监测无法编排次数
+        self.full_count = 0
+        # 监测云次数
+        self.cloud_times = 0
 
         self.content_loaded = False
         self._space_init()
@@ -280,6 +285,8 @@ class Env(ParallelEnv):
             self.max_caching,  # 动作7: 缓存策略，不需要bin因为本来就是离散的
         ]
 
+        # self.action_space_dims = []
+
         action_space_dims = self.action_space_dims
 
         self.md_discrete_action_space = spaces.MultiDiscrete(
@@ -380,7 +387,7 @@ class Env(ParallelEnv):
             self._update_vehicles()
             # update connections queue, very important
             self._update_connections_queue()
-            # remove deprecated jobs
+            # remove deprecated jobs 需要在上面的if里吗还是在外面
             self._update_job_handlings()
 
         # update observation space
@@ -400,7 +407,8 @@ class Env(ParallelEnv):
                 a: {"bad_transition": True, "idle": self.rsus[idx].idle}
                 for idx, a in enumerate(self.agents)
             }
-
+            print(f"cloud_count:{self.cloud_times}")
+            print(f"full_count:{self.full_count}")
             self.sumo.close()
             self.sumo_has_init = False
         else:
@@ -434,10 +442,12 @@ class Env(ParallelEnv):
                 veh: Vehicle
                 if (
                     veh.vehicle_id not in self.vehicle_ids
-                    or veh.connected_rsu_id != veh.pre_connected_rsu_id
+                    or veh.connected_rsu_id
+                    != veh.pre_connected_rsu_id  # 离开上一个rsu范围，不保证正确
                     or veh not in self.connections
                 ):
                     # 需不需要往前移（最好不要）？以及邻居是否也要移除该veh
+                    # 并没有移除！
                     rsu.remove_job(elem=veh)
 
                     veh.job_deprocess(self.rsus, self.rsu_network)
@@ -503,9 +513,6 @@ class Env(ParallelEnv):
             if rsu.connections_queue.is_empty():
                 return
 
-            if self.timestep == 141:
-                pass
-
             m_actions_self = action[: self.action_space_dims[0]]
             pre = self.action_space_dims[0]
             m_actions_nb = action[pre : pre + self.action_space_dims[1]]
@@ -525,13 +532,14 @@ class Env(ParallelEnv):
 
                 veh = self.vehicles[veh_id]
 
-                self_ratio = m_actions_self[m_idx] / self.bins
-                nb_ratio = m_actions_nb[m_idx] / self.bins
-                job_ratio = m_actions_job_ratio[m_idx] / self.bins
+                # 防止奖励突变+ 1e-6
+                self_ratio = m_actions_self[m_idx] / self.bins + 1e-6
+                nb_ratio = m_actions_nb[m_idx] / self.bins + 1e-6
+                job_ratio = m_actions_job_ratio[m_idx] / self.bins + 1e-6
 
                 sum_ratio = self_ratio + nb_ratio
 
-                # 0就是不迁移，一般不会0
+                # 0就是不迁移
                 if sum_ratio > 0:
 
                     # 这种都可以靠遍历，如果k>3 需要修改逻辑
@@ -554,9 +562,11 @@ class Env(ParallelEnv):
                         if not any(in_rsu):
                             veh.is_cloud = True
                             veh.job.is_cloud = True
+                            self.cloud_times += 1
                             if not veh.job.processing_rsus.is_empty():
                                 for rsu in veh.job.processing_rsus:
-                                    rsu.remove_job(veh)
+                                    if rsu is not None:
+                                        rsu.remove_job(veh)
                                 veh.job.processing_rsus.clear()
                             continue
 
@@ -583,7 +593,7 @@ class Env(ParallelEnv):
                     update_mask = in_rsu  # 需要更新的 RSU
                     store_mask = (
                         ~is_full & ~in_rsu
-                    )  # 需要存入的 RSU，当且仅当没满或者没在rsu
+                    )  # 需要存入的 RSU，当且仅当没满且没在rsu里
 
                     # 合并更新和存入的掩码
                     valid_mask = update_mask | store_mask  # 需要更新或存入的 RSU
@@ -594,6 +604,10 @@ class Env(ParallelEnv):
                         total_ratio = np.sum(valid_ratios)  # 计算总和
                         if total_ratio > 0:  # 避免除以零
                             mig_ratio[valid_mask] = valid_ratios / total_ratio  # 归一化
+                    else:
+                        # 异常情况？
+                        self.full_count += 1
+                        continue
 
                     # 更新
                     for u_idx, rsu in enumerate(mig_rsus):
@@ -623,11 +637,13 @@ class Env(ParallelEnv):
                                 )
                 else:
                     # cloud
+                    self.cloud_times += 1
                     veh.is_cloud = True
                     veh.job.is_cloud = True
                     if not veh.job.processing_rsus.is_empty():
                         for rsu in veh.job.processing_rsus:
-                            rsu.remove_job(veh)
+                            if rsu is not None:
+                                rsu.remove_job(veh)
                         veh.job.processing_rsus.clear()
 
                 pass
@@ -845,8 +861,8 @@ class Env(ParallelEnv):
                 veh: Vehicle
 
                 if veh.vehicle_id not in rsu.range_connections:
-                    # 最好不要shift因为shift会导致遍历问题
-                    rsu.connections.remove(veh)
+                    # 最好不要shift因为shift会导致遍历问题，但是新策略得要，看看是否有问题
+                    rsu.connections.remove_and_shift(veh)
 
     # improve：返回polygons然后后面统一绘制？
     def _render_connections(self):

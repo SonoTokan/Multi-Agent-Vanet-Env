@@ -249,22 +249,23 @@ class Rsu:
 
         # distance to vehs
         self.distances = OrderedQueueList(max_connections)
+
+        # 后两张表为虚拟的，用以复制前一半表动作
         # copy from range_connections when update connections
-        self.connections_queue = OrderedQueueList(max_connections)
+        self.connections_queue = OrderedQueueList(max_connections * 3)
         # conn in range, not modify only if update connections
-        self.range_connections = OrderedQueueList(max_connections)
-        self.connections = OrderedQueueList(max_connections)
+        self.range_connections = OrderedQueueList(max_connections * 3)
+        self.connections = OrderedQueueList(max_connections * 3)
         self.handling_job_queue = OrderedQueueList(max_cores)  # may not necessary
-        self.handling_jobs = OrderedQueueList(max_cores)
+        self.handling_jobs = OrderedQueueList(max_cores * 3)
         self.bw_alloc = OrderedQueueList(max_connections)
         self.computation_power_alloc = OrderedQueueList(max_cores)
         self.real_cp_alloc = OrderedQueueList(max_cores)
         self.caching_contents = OrderedQueueList(caching_capacity)
-
         self.energy_efficiency = 0
 
         # cp_usage max is weight
-        self.cp_usage = 10
+        self.cp_usage = 1
         self.bw_ratio = 5
         self.tx_ratio = 100
 
@@ -305,10 +306,10 @@ class Rsu:
     def remove_job(self, elem):
         if isinstance(elem, tuple):
             if elem in self.handling_jobs:
-                self.handling_jobs.remove(elem)
+                self.handling_jobs.remove_and_shift(elem)
         else:
-            if elem in self.handling_jobs:
-                self.handling_jobs.remove((elem, 0))
+            if (elem, 0) in self.handling_jobs:
+                self.handling_jobs.remove_and_shift((elem, 0))
 
     def box_alloc_cp(self, alloc_cp_list, cp_usage):
         # 0 - 1
@@ -317,7 +318,7 @@ class Rsu:
 
         ava_alloc = []
 
-        for idx, veh_info in enumerate(self.handling_jobs):
+        for idx, veh_info in enumerate(self.handling_jobs.olist[: self.max_cores]):
             if veh_info is not None:
                 veh, raito = veh_info
                 veh: Vehicle
@@ -348,10 +349,10 @@ class Rsu:
         from vanet_env import network
 
         ava_alloc = []
-        for idx, veh in enumerate(self.connections):
+        for idx, veh in enumerate(self.connections.olist[: self.max_connections]):
             veh: Vehicle
             if veh is not None and veh.vehicle_id in veh_ids:
-                ava_alloc.append(self.bw_alloc[idx])
+                ava_alloc.append(self.bw_alloc[idx % self.max_connections])
             else:
                 ava_alloc.append(None)
 
@@ -376,7 +377,7 @@ class Rsu:
                     self,
                     veh,
                     veh.distance_to_rsu,
-                    self.bw * self.bw_norm[idx] * self.num_atn,
+                    self.bw * self.bw_norm[idx % self.max_connections] * self.num_atn,
                 )
                 veh
         pass

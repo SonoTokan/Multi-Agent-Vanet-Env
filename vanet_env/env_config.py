@@ -23,7 +23,7 @@ ROAD_WIDTH = 10
 RSU_POSITIONS = []
 
 # roadside_down
-for x in range(30, 400, 100):
+for x in range(40, 400, 90):
     for y in range(0, 77 * 5, 77):
         RSU_POSITIONS.append((x, y))
 
@@ -36,7 +36,7 @@ NUM_RSU = len(RSU_POSITIONS)
 
 
 # Computation Power TFLOPs/s based on RTX 4060 Ti 22.1 tflops、RTX 4070 29.1 tflops、RTX 4080 48.7 tflops、RTX 4090 82.6 tflops
-RSU_COMPUTATION_POWER = 82.6
+RSU_COMPUTATION_POWER = 82.6 + 48.7
 # Caching Capacity
 RSU_CACHING_CAPACITY = 1
 # Transmitted power (( P_t )): 1 Watt (27 dBm)
@@ -109,7 +109,7 @@ HOP_OPT_FACTOR = 90
 # vrc Meta Quest 2 with Complex Avatar 35-65 tflops, 25-70 Mbps
 # 90fps -> 1frame=0.01111 s -> 11.11ms
 JOB_CP_REQUIRE = 40
-JOB_DR_REQUIRE = 40
+JOB_DR_REQUIRE = 30
 JOB_FPS_REQUIRE = 90
 # latency factor
 LATENCY_FACTOR = ...
