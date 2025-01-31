@@ -63,7 +63,7 @@ def main(args):
     cuda_deterministic = False
     time_spilit = False
     env_name = "vanet"
-    alg_name = "rmappo"
+    alg_name = "ippo"
     exp_prefix = "time_all" if not time_spilit else "time_spilitted"
     use_wandb = True
     seed = SEED
