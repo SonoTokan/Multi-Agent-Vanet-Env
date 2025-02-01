@@ -62,7 +62,7 @@ def main(args):
 
     n_training_threads = 1
     cuda_deterministic = False
-    time_spilit = True
+    time_spilit = False
     use_cadp = True
     cadp_breakpoint = math.floor(max_step * 0.1)
     env_name = "vanet"

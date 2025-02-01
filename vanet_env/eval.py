@@ -1,5 +1,6 @@
 import cProfile
 import math
+import pstats
 import sys
 
 import pandas as pd
@@ -209,6 +210,9 @@ class MultiAgentStrategies:
 
         return [actions]
 
+    def fairalloc_strategy(self, obs, infos):
+        pass
+
     # def heuristic_strategy(self, obs):
     #     """
     #     A heuristic strategy balancing load among neighboring RSUs.
@@ -276,6 +280,7 @@ class MultiAgentStrategies:
                         qoe_real.append(float(self.env.vehicles[vid].job.qoe))
                         for hit_ratio in rsu.hit_ratios:
                             hit_ratios.append(hit_ratio)
+                        # 为什么ee至少有1.0
                         ees.append(float(rsu.ee))
 
             # resource_usage = np.mean([rsu.cp_usage for rsu in self.env.rsus])
@@ -330,14 +335,16 @@ def rmappo(args):
     prefix = "train" if not is_eval else "eval"
     all_args.algorithm_name = "rmappo"
     all_args.experiment_name = "Mulit_discrete" if is_discrete else "Box"
-    all_args.model_dir = (
-        Path(
-            os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
-            + "/saved_model"
-        )
-        / all_args.algorithm_name
-        / all_args.experiment_name
-    )
+    model_dir = "C:\\Users\\chentokan\\Documents\\Figs_Data\\model"
+    # all_args.model_dir = (
+    #     Path(
+    #         os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
+    #         + "/saved_model"
+    #     )
+    #     / all_args.algorithm_name
+    #     / all_args.experiment_name
+    # )
+    all_args.model_dir = model_dir
 
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
@@ -463,11 +470,12 @@ def rmappo(args):
 def other_policy():
     exp_name = "multi_discrete"
     alg_name = "random_strategy"
+
     log = True
     # alg_name = "heuristic_strategy"
 
     step = 10240
-    env = env_light.Env("human", max_step=step)
+    env = env_light.Env(None, max_step=step)
     strategies = MultiAgentStrategies(env)
 
     if log:
@@ -500,7 +508,16 @@ def other_policy():
 
 def main(args):
     # rmappo(args=args)
-    cProfile.run("other_policy()", sort="time")
+    # cProfile.run("other_policy()", sort="time")
+    profiler = cProfile.Profile()
+    profiler.enable()
+    rmappo(args)
+    profiler.disable()
+    # 创建 Stats 对象并排序
+    stats = pstats.Stats(profiler)
+    stats.sort_stats("time")  # 按内部时间排序
+    stats.reverse_order()  # 反转排序顺序（从升序变为降序，或从降序变为升序）
+    stats.print_stats()  # 打印结果
 
 
 if __name__ == "__main__":

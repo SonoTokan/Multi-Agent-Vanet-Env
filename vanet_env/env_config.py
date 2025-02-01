@@ -44,7 +44,7 @@ RSU_TRANSMITTED_POWER = 30
 # Noise power (( N )): ( 10^{-9} ) Watts (-90 dBm)
 RSU_NOISE_POWER = 1e-9
 # Max Transmitted Bandwidth (( B )): 10 MHz, i.e. 10e6 Hz
-RSU_MAX_TRANSMITTED_BANDWIDTH = 10e6
+RSU_MAX_TRANSMITTED_BANDWIDTH = 20e6
 # Frequency (( f )): 2.4, 5.9 GHz, i.e. 2400 MHz, 5905 MHz
 RSU_FREQUENCY = 5905
 # Antenna Height
@@ -109,7 +109,7 @@ HOP_OPT_FACTOR = 90
 # vrc Meta Quest 2 with Complex Avatar 35-65 tflops, 25-70 Mbps
 # 90fps -> 1frame=0.01111 s -> 11.11ms
 JOB_CP_REQUIRE = 40
-JOB_DR_REQUIRE = 30
+JOB_DR_REQUIRE = 40
 JOB_FPS_REQUIRE = 90
 # latency factor
 LATENCY_FACTOR = ...

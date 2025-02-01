@@ -50,6 +50,16 @@ class OrderedQueueList:
                 return True
         return False
 
+    # 如果满了，淘汰第一位/随机一位或者最后一位...
+    def append_and_out(self, elem):
+        for i in range(self.max_size):
+            if self.olist[i] is None:
+                self.olist[i] = elem
+                return None
+        t = self.olist[-1]
+        self.olist[i] = elem
+        return t
+
     def replace(self, elem, index):
         temp = self.olist[index]
         self.olist[index] = elem
@@ -67,7 +77,7 @@ class OrderedQueueList:
 
     def remove(self, elem=None, index=-1):
         if elem is not None:
-            self.remove(index=self.index(elem))
+            return self.remove(index=self.index(elem))
         else:
             if index == None:
                 return None
@@ -84,7 +94,7 @@ class OrderedQueueList:
         better not use, shift may have some iter issue
         """
         if elem is not None:
-            self.remove_and_shift(index=self.index(elem))
+            return self.remove_and_shift(index=self.index(elem))
         else:
             if index == None:
                 return None
@@ -304,12 +314,13 @@ class Rsu:
         return self.transmitted_power * self.tx_ratio / 100 + self.tx_gain
 
     def remove_job(self, elem):
+
         if isinstance(elem, tuple):
             if elem in self.handling_jobs:
-                self.handling_jobs.remove_and_shift(elem)
+                self.handling_jobs.remove(elem)
         else:
             if (elem, 0) in self.handling_jobs:
-                self.handling_jobs.remove_and_shift((elem, 0))
+                self.handling_jobs.remove((elem, 0))
 
     def box_alloc_cp(self, alloc_cp_list, cp_usage):
         # 0 - 1
@@ -319,9 +330,10 @@ class Rsu:
         ava_alloc = []
 
         for idx, veh_info in enumerate(self.handling_jobs.olist[: self.max_cores]):
-            if veh_info is not None:
-                veh, raito = veh_info
-                veh: Vehicle
+            veh_info1 = self.handling_jobs.olist[idx]
+            veh_info2 = self.handling_jobs.olist[idx + self.max_cores]
+            veh_info3 = self.handling_jobs.olist[idx + self.max_cores * 2]
+            if veh_info1 is not None or veh_info2 is not None or veh_info3 is not None:
                 ava_alloc.append(self.computation_power_alloc[idx])
             else:
                 ava_alloc.append(None)
@@ -351,7 +363,16 @@ class Rsu:
         ava_alloc = []
         for idx, veh in enumerate(self.connections.olist[: self.max_connections]):
             veh: Vehicle
-            if veh is not None and veh.vehicle_id in veh_ids:
+
+            veh1 = self.connections.olist[idx]
+            veh2 = self.connections.olist[idx + self.max_connections]
+            veh3 = self.connections.olist[idx + self.max_connections * 2]
+
+            if (
+                (veh1 is not None and veh1.vehicle_id in veh_ids)
+                or (veh2 is not None and veh2.vehicle_id in veh_ids)
+                or (veh3 is not None and veh3.vehicle_id in veh_ids)
+            ):
                 ava_alloc.append(self.bw_alloc[idx % self.max_connections])
             else:
                 ava_alloc.append(None)
@@ -633,6 +654,11 @@ class Job:
         self.job_size = job_size
         self.job_type = job_type
         self.qoe = 0
+        self.pre_qoe = None
+        self.pre_trans_qoe = 0
+        self.pre_proc_qoe = 0
+        self.trans_qoe = 0
+        self.proc_qoe = 0
         # processed size # deprecated
         self.job_processed = 0
         # processing rsu

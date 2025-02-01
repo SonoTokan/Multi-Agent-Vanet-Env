@@ -136,7 +136,9 @@ class Env(ParallelEnv):
         self.rsu_network = network.network(self.rsu_coords, self.rsu_tree)
 
         # rsu max connection distance
-        self.max_distance = network.max_distance_mbps(self.rsus[0])
+        self.max_distance = network.max_distance_mbps(
+            self.rsus[0], rate_tr=env_config.DATA_RATE_TR * 2
+        )
         print(f"max_distance:{self.max_distance}")
         self.sumo = traci
 
@@ -524,7 +526,8 @@ class Env(ParallelEnv):
             nb_rsu2: Rsu = self.rsus[self.rsu_network[rsu.id][1]]
 
             # 取样，这个list可以改为其他
-            for m_idx, ma in enumerate(m_actions_self):
+            # 如果取样的是connections_queue，那需要注意prase idx
+            for m_idx, ma in enumerate(rsu.connections_queue):
 
                 veh_id: Vehicle = rsu.connections_queue.remove(index=m_idx)
 
@@ -532,11 +535,11 @@ class Env(ParallelEnv):
                     continue
 
                 veh = self.vehicles[veh_id]
-
+                real_m_idx = m_idx % self.max_connections
                 # 防止奖励突变+ 1e-6
-                self_ratio = m_actions_self[m_idx] / self.bins + 1e-6
-                nb_ratio = m_actions_nb[m_idx] / self.bins + 1e-6
-                job_ratio = m_actions_job_ratio[m_idx] / self.bins + 1e-6
+                self_ratio = m_actions_self[real_m_idx] / self.bins + 1e-6
+                nb_ratio = m_actions_nb[real_m_idx] / self.bins + 1e-6
+                job_ratio = m_actions_job_ratio[real_m_idx] / self.bins + 1e-6
 
                 sum_ratio = self_ratio + nb_ratio
 
@@ -627,14 +630,16 @@ class Env(ParallelEnv):
                             # connections有可能爆满
                             if veh not in rsu.connections:
                                 # 会不会重复connection？
-                                # 2.1 重复connection逻辑 fix！
-                                veh_disconnect = rsu.connections.queue_jumping(veh)
+                                # 2.1 重复connection逻辑 fix！改为append！
+                                veh_disconnect = rsu.connections.append_and_out(veh)
+                                # rsu.connections.append(veh)
+
                             s_rsu.handling_jobs.append(
                                 (veh, float(mig_ratio[s_idx] * job_ratio))
                             )
                             veh.job_process(s_idx, s_rsu)
 
-                            # 假如veh被断开连接
+                            # 假如有veh被断开连接
                             if veh_disconnect is not None:
                                 veh_disconnect: Vehicle
                                 veh_disconnect.job_deprocess(
@@ -872,9 +877,9 @@ class Env(ParallelEnv):
                     or veh.connected_rsu_id != rsu.id
                 ):
                     # veh296不知道为什么不会被移除？
-                    if veh.vehicle_id == 'veh296':
+                    if veh.vehicle_id == "veh296":
                         ...
-                    rsu.connections.remove_and_shift(veh)
+                    rsu.connections.remove(veh)
 
     # improve：返回polygons然后后面统一绘制？
     def _render_connections(self):
@@ -892,32 +897,32 @@ class Env(ParallelEnv):
                 veh: Vehicle
                 # 需要拉上所有鄰居嗎
 
-                if rsu.connections.size() == 0:
-                    # 不可能会到这里
-                    max_trans_qoe = 1e-6
-                else:
-                    max_trans_qoe = (
-                        env_config.MAX_QOE
-                        * self.max_data_rate
-                        * rsu.num_atn
-                        / env_config.JOB_DR_REQUIRE
-                    ) / rsu.connections.size()
+                # if rsu.connections.size() == 0:
+                #     # 不可能会到这里
+                #     max_trans_qoe = 1e-6
+                # else:
+                #     max_trans_qoe = (
+                #         env_config.MAX_QOE
+                #         * self.max_data_rate
+                #         * rsu.num_atn
+                #         / env_config.JOB_DR_REQUIRE
+                #     ) / rsu.connections.size()
 
-                if rsu.handling_jobs.size() == 0:
-                    # 不知道为什么有可能会到这里
-                    max_proc_qoe = 1e-6
-                else:
+                # if rsu.handling_jobs.size() == 0:
+                #     # 不知道为什么有可能会到这里
+                #     max_proc_qoe = 1e-6
+                # else:
 
-                    max_proc_qoe = (
-                        env_config.MAX_QOE
-                        * rsu.computation_power
-                        * 1
-                        / env_config.JOB_CP_REQUIRE
-                    ) / rsu.handling_jobs.size()
+                #     max_proc_qoe = (
+                #         env_config.MAX_QOE
+                #         * rsu.computation_power
+                #         * 1
+                #         / env_config.JOB_CP_REQUIRE
+                #     ) / rsu.handling_jobs.size()
 
-                max_qoe = min(max_proc_qoe, max_trans_qoe)
+                # max_qoe = min(max_proc_qoe, max_trans_qoe)
 
-                color = interpolate_color(0, max_qoe, veh.job.qoe)
+                color = interpolate_color(0, env_config.MAX_QOE, veh.job.qoe)
                 color_with_alpha = (*color, 255)
 
                 polygons_to_add.append(

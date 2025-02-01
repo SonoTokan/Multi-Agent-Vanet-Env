@@ -38,6 +38,7 @@ def calculate_box_utility(
     # 由veh计算，
     # 只需计算in range car的qoe，这里可修改
     for v_id, veh in vehs.items():
+        # 相当于idle的不算
         if veh.vehicle_id not in rsus[veh.connected_rsu_id].range_connections:
             continue
 
@@ -46,6 +47,11 @@ def calculate_box_utility(
         if veh.is_cloud:
             qoe = max_qoe * 0.1
             rsu_utility_dict[veh.connected_rsu_id].append(qoe)
+            if veh.job.pre_qoe is None:
+                veh.job.pre_qoe = qoe
+            else:
+                veh.job.pre_qoe = veh.job.qoe
+
             veh.job.qoe = qoe
             continue
 
@@ -68,6 +74,7 @@ def calculate_box_utility(
                 rsu_utility_dict[veh.connected_rsu_id].append(0.0)
 
         job_ratio_all = 0.0
+
         # 一般是邻居
         for p_rsu in veh.job.processing_rsus:
             # 即single ratio
@@ -112,8 +119,6 @@ def calculate_box_utility(
                         veh.first_time_caching = False
                         caching_hit_states[veh.connected_rsu_id].append(0)
 
-                    veh.job.qoe = qoe
-
                     trans_rsu.ee = max_ee * (1 - trans_rsu.cp_usage)
 
                     trans_qoes[veh.connected_rsu_id].append(
@@ -141,8 +146,6 @@ def calculate_box_utility(
                         veh.first_time_caching = False
                         caching_hit_states[veh.connected_rsu_id].append(0)
 
-                    veh.job.qoe = qoe
-
                     p_rsu.ee = max_ee * (1 - p_rsu.cp_usage)
                     trans_rsu.ee = max_ee * (1 - trans_rsu.cp_usage)
 
@@ -168,12 +171,33 @@ def calculate_box_utility(
             avg_proc_qoes = np.mean(flattened_proc_qoes)
             weighted_avg_proc_qoes = float(avg_proc_qoes * job_ratio_all)
 
+            qoe = min(weighted_avg_trans_qoes, weighted_avg_proc_qoes)
+            # 导入veh
+            if veh.job.pre_qoe is None:
+                veh.job.pre_qoe = qoe
+                veh.job.pre_proc_qoe = weighted_avg_proc_qoes
+                veh.job.pre_trans_qoe = weighted_avg_trans_qoes
+                utility = qoe
+            else:
+                # jitter factor 0.1
+                utility = 0.1 * abs(veh.job.pre_qoe - qoe) + 0.9 * qoe
+
+                veh.job.pre_qoe = veh.job.qoe
+                veh.job.pre_proc_qoe = veh.job.proc_qoe
+                veh.job.pre_trans_qoe = veh.job.trans_qoe
+
+            veh.job.trans_qoe = weighted_avg_trans_qoes
+            veh.job.proc_qoe = weighted_avg_proc_qoes
+            veh.job.qoe = qoe
+
             # 展平
             # flattened_values = list(chain.from_iterable(rsu_proc_qoe_dict.values()))
             # sum_qoes = np.sum(flattened_values)
             # avg_qoe = sum_qoes / num_proc_rus
 
+            # utility计算
             # 如果要把这个策略清理，需要修改proc_qoes
+
             for rsu_id, qoes in proc_qoes.items():
                 # caching 命中次数除以总caching访问次数
                 if len(caching_hit_states[rsu_id]) != 0:
@@ -184,10 +208,10 @@ def calculate_box_utility(
 
                 if rsu_id == trans_rsu.id:
                     # 这个trans_rsu id理论上必有，且理论上必是这三个proc中的一个，重复会稀释，需要检查吗
-                    rsu_utility_dict[trans_rsu.id].append(weighted_avg_trans_qoes)
+                    # 是否分别导入trans和proc？
+                    rsu_utility_dict[trans_rsu.id].append(utility)
                     # 不重复导入
                 else:
-                    rsu_utility_dict[rsu_id].append(weighted_avg_proc_qoes)
-            # 将proc rsu的 avg qoe导入trans rsu
+                    rsu_utility_dict[rsu_id].append(utility)
 
     return rsu_utility_dict, caching_hit_ratios

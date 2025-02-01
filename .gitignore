@@ -37,3 +37,5 @@ model/
 wangdb/best
 saved_best/
 saved_model/
+wandb/
+wandb*.csv
