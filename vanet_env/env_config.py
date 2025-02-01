@@ -113,6 +113,8 @@ JOB_DR_REQUIRE = 30
 JOB_FPS_REQUIRE = 90
 # latency factor
 LATENCY_FACTOR = ...
+MAX_QOE = 1.0
+
 
 # computational factor
 COMPUTATIONAL_FACTOR = ...

@@ -143,15 +143,24 @@ class Runner(object):
         self.buffer.after_update()
         return train_infos
 
-    def save(self):
+    def save(self, name):
         """Save policy's actor and critic networks."""
         policy_actor = self.trainer.policy.actor
-        torch.save(policy_actor.state_dict(), str(self.save_dir) + "/actor.pt")
+        torch.save(
+            policy_actor.state_dict(),
+            str(self.save_dir) + str("/" + name + "actor.pt"),
+        )
         policy_critic = self.trainer.policy.critic
-        torch.save(policy_critic.state_dict(), str(self.save_dir) + "/critic.pt")
+        torch.save(
+            policy_critic.state_dict(),
+            str(self.save_dir) + str("/" + name + "critic.pt"),
+        )
         if self.trainer._use_valuenorm:
             policy_vnorm = self.trainer.value_normalizer
-            torch.save(policy_vnorm.state_dict(), str(self.save_dir) + "/vnorm.pt")
+            torch.save(
+                policy_vnorm.state_dict(),
+                str(self.save_dir) + str("/" + name + "vnorm.pt"),
+            )
 
     def save_timestep(self, timestep):
         """Save policy's actor and critic networks."""

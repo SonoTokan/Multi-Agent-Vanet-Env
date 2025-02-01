@@ -18,8 +18,10 @@ class VANETRunner(Runner):
         super(VANETRunner, self).__init__(config)
 
     def run(self):
+        is_save_best = True
         self.warmup()
-
+        best_reward = -np.inf
+        current_reward = 0
         start = time.time()
         episodes = (
             int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
@@ -64,8 +66,13 @@ class VANETRunner(Runner):
                 (episode + 1) * self.episode_length * self.n_rollout_threads
             )
             # save model
+            if is_save_best:
+                avg_rewards = np.mean(self.buffer.rewards)
+                if avg_rewards > best_reward:
+                    best_reward = avg_rewards
+                    self.save("best_")
             if episode % self.save_interval == 0 or episode == episodes - 1:
-                self.save()
+                self.save("")
 
             if getattr(self.all_args, "use_CADP", False):
                 if (total_num_steps - tmp_timestep) - 500000 > 0:

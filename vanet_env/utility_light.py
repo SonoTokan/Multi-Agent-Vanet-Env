@@ -20,7 +20,7 @@ def calculate_box_utility(
     time_step,
     fps,
     weight,
-    max_qoe=1.0,
+    max_qoe=env_config.MAX_QOE,
     int_utility=False,
     max_connections=env_config.MAX_CONNECTIONS,
     num_cores=env_config.NUM_CORES,
@@ -105,7 +105,7 @@ def calculate_box_utility(
                         use_caching = False
 
                     # 只有第一次进来才append
-                    if use_caching and veh.first_time_caching:
+                    if use_caching or veh.connected_rsu_id != veh.pre_connected_rsu_id:
                         veh.first_time_caching = False
                         caching_hit_states[veh.connected_rsu_id].append(1)
                     else:
@@ -134,7 +134,7 @@ def calculate_box_utility(
                         qoe = max(qoe - qoe * 0.1, 0)
                         use_caching = False
 
-                    if use_caching and veh.first_time_caching:
+                    if use_caching or veh.connected_rsu_id != veh.pre_connected_rsu_id:
                         veh.first_time_caching = False
                         caching_hit_states[veh.connected_rsu_id].append(1)
                     else:

@@ -34,4 +34,6 @@ logs/
 results/
 deprecated/
 model/
-wangdb/
+wangdb/best
+saved_best/
+saved_model/

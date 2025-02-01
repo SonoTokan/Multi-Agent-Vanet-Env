@@ -1,3 +1,4 @@
+import cProfile
 import math
 import sys
 
@@ -326,7 +327,7 @@ def rmappo(args):
     all_args.num_env_steps = max_step
     all_args.episode_length = env_max_step
     all_args.log_interval = 1
-    prefix = "tran" if not is_eval else "eval"
+    prefix = "train" if not is_eval else "eval"
     all_args.algorithm_name = "rmappo"
     all_args.experiment_name = "Mulit_discrete" if is_discrete else "Box"
     all_args.model_dir = (
@@ -462,29 +463,32 @@ def rmappo(args):
 def other_policy():
     exp_name = "multi_discrete"
     alg_name = "random_strategy"
+    log = True
     # alg_name = "heuristic_strategy"
 
     step = 10240
-    env = env_light.Env(None, max_step=step)
+    env = env_light.Env("human", max_step=step)
     strategies = MultiAgentStrategies(env)
-    metrics = strategies.run_experiment(strategy_name=alg_name, steps=step)
 
-    print(f"{alg_name}:{metrics}")
-    av = np.mean(metrics["Rewards"])
-    avg_qoe = np.mean(metrics["QoE"])
-    avg_hit_ratio = np.mean(metrics["Hit_ratio"])
-    print(f"{alg_name}_avg_step_reward:{av}")
-    print(f"{alg_name}_avg_step_qoe:{avg_qoe}")
-    print(f"{alg_name}_avg_step_hit_ratio:{avg_hit_ratio}")
-    df = pd.DataFrame(metrics, columns=["QoE", "EE", "Rewards", "Hit_ratio"])
+    if log:
+        metrics = strategies.run_experiment(strategy_name=alg_name, steps=step)
 
-    from datetime import datetime
+        print(f"{alg_name}:{metrics}")
+        av = np.mean(metrics["Rewards"])
+        avg_qoe = np.mean(metrics["QoE"])
+        avg_hit_ratio = np.nanmean(metrics["Hit_ratio"])
+        print(f"{alg_name}_avg_step_reward:{av}")
+        print(f"{alg_name}_avg_step_qoe:{avg_qoe}")
+        print(f"{alg_name}_avg_step_hit_ratio:{avg_hit_ratio}")
+        df = pd.DataFrame(metrics, columns=["QoE", "EE", "Rewards", "Hit_ratio"])
 
-    current_time = datetime.now()
+        from datetime import datetime
 
-    formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
-    df.to_csv(f"data_{exp_name}_{alg_name}_{formatted_time}.csv", index=False)
-    print(f"CSV 文件已生成：data_{exp_name}_{alg_name}_{formatted_time}.csv")
+        current_time = datetime.now()
+
+        formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
+        df.to_csv(f"data_{exp_name}_{alg_name}_{formatted_time}.csv", index=False)
+        print(f"CSV 文件已生成：data_{exp_name}_{alg_name}_{formatted_time}.csv")
     # metrics_greedy = strategies.run_experiment(strategies.greedy_strategy, steps=3600)
     # print(f"random:{metrics_greedy}")
 
@@ -496,7 +500,7 @@ def other_policy():
 
 def main(args):
     # rmappo(args=args)
-    other_policy()
+    cProfile.run("other_policy()", sort="time")
 
 
 if __name__ == "__main__":

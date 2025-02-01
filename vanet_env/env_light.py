@@ -390,6 +390,8 @@ class Env(ParallelEnv):
             # remove deprecated jobs 需要在上面的if里吗还是在外面
             self._update_job_handlings()
 
+            self.render()
+
         # update observation space
         observations = self._beta_update_box_observations(time_step=self.timestep)
         # time up or sumo done
@@ -420,9 +422,6 @@ class Env(ParallelEnv):
 
         self.timestep += 1
 
-        if self.render_mode == "human":
-            self.render()
-
         return observations, rewards, terminations, truncations, infos
 
     def _update_job_handlings(self):
@@ -441,9 +440,7 @@ class Env(ParallelEnv):
                     continue
                 veh: Vehicle
                 if (
-                    veh.vehicle_id not in self.vehicle_ids
-                    or veh.connected_rsu_id
-                    != veh.pre_connected_rsu_id  # 离开上一个rsu范围，不保证正确
+                    veh.vehicle_id not in self.vehicle_ids  # 离开地图
                     or veh not in self.connections
                 ):
                     # 需不需要往前移（最好不要）？以及邻居是否也要移除该veh
@@ -451,10 +448,14 @@ class Env(ParallelEnv):
                     rsu.remove_job(elem=veh)
 
                     veh.job_deprocess(self.rsus, self.rsu_network)
+                if (
+                    veh.connected_rsu_id != veh.pre_connected_rsu_id
+                ):  # 离开上一个rsu范围，不保证正确
+                    self.rsus[veh.pre_connected_rsu_id].remove_job(elem=veh)
+                    veh.job_deprocess(self.rsus, self.rsu_network)
         # may not necessary
         # for rsu in self.rsus:
         #     rsu.job_clean()
-        ...
 
     # check_idle的外层循环
     def _update_all_rsus_idle(self):
@@ -610,24 +611,28 @@ class Env(ParallelEnv):
                         continue
 
                     # 更新
-                    for u_idx, rsu in enumerate(mig_rsus):
+                    for u_idx, u_rsu in enumerate(mig_rsus):
                         if update_mask[u_idx]:
-                            rsu: Rsu
-                            rsu.handling_jobs[idxs_in_rsus[u_idx]] = (
+                            u_rsu: Rsu
+                            u_rsu.handling_jobs[idxs_in_rsus[u_idx]] = (
                                 veh,
                                 float(mig_ratio[u_idx] * job_ratio),
                             )
 
                     # 存入
-                    for s_idx, rsu in enumerate(mig_rsus):
+                    for s_idx, s_rsu in enumerate(mig_rsus):
                         if store_mask[s_idx]:
-                            rsu: Rsu
+                            s_rsu: Rsu
+                            veh_disconnect: Vehicle = None
                             # connections有可能爆满
-                            veh_disconnect = rsu.connections.queue_jumping(veh)
-                            rsu.handling_jobs.append(
+                            if veh not in rsu.connections:
+                                # 会不会重复connection？
+                                # 2.1 重复connection逻辑 fix！
+                                veh_disconnect = rsu.connections.queue_jumping(veh)
+                            s_rsu.handling_jobs.append(
                                 (veh, float(mig_ratio[s_idx] * job_ratio))
                             )
-                            veh.job_process(s_idx, rsu)
+                            veh.job_process(s_idx, s_rsu)
 
                             # 假如veh被断开连接
                             if veh_disconnect is not None:
@@ -856,12 +861,19 @@ class Env(ParallelEnv):
             # disconnect out of range jobs
             # connections里是object，range_connections是id
             for veh in rsu.connections:
+
                 if veh is None:
                     continue
                 veh: Vehicle
-
-                if veh.vehicle_id not in rsu.range_connections:
-                    # 最好不要shift因为shift会导致遍历问题，但是新策略得要，看看是否有问题
+                # 车辆已离开
+                if (
+                    veh.vehicle_id not in self.vehicle_ids
+                    or veh.vehicle_id not in rsu.range_connections
+                    or veh.connected_rsu_id != rsu.id
+                ):
+                    # veh296不知道为什么不会被移除？
+                    if veh.vehicle_id == 'veh296':
+                        ...
                     rsu.connections.remove_and_shift(veh)
 
     # improve：返回polygons然后后面统一绘制？
@@ -871,21 +883,56 @@ class Env(ParallelEnv):
 
         # render QoE
         # not correct now
-        for conn in self.connections_queue:
-            color = interpolate_color(0, 1, conn.qoe)
+        for rsu in self.rsus:
+            rsu: Rsu
+            for veh in rsu.connections:
+                if veh is None:
+                    continue
 
-            color_with_alpha = (*color, 255)
+                veh: Vehicle
+                # 需要拉上所有鄰居嗎
 
-            polygons_to_add.append(
-                (
-                    f"dynamic_line_rsu{conn.rsu.id}_to_{conn.veh.vehicle_id}",
-                    [
-                        (conn.rsu.position.x, conn.rsu.position.y),
-                        (conn.veh.position.x, conn.veh.position.y),
-                    ],
-                    color_with_alpha,
+                if rsu.connections.size() == 0:
+                    # 不可能会到这里
+                    max_trans_qoe = 1e-6
+                else:
+                    max_trans_qoe = (
+                        env_config.MAX_QOE
+                        * self.max_data_rate
+                        * rsu.num_atn
+                        / env_config.JOB_DR_REQUIRE
+                    ) / rsu.connections.size()
+
+                if rsu.handling_jobs.size() == 0:
+                    # 不知道为什么有可能会到这里
+                    max_proc_qoe = 1e-6
+                else:
+
+                    max_proc_qoe = (
+                        env_config.MAX_QOE
+                        * rsu.computation_power
+                        * 1
+                        / env_config.JOB_CP_REQUIRE
+                    ) / rsu.handling_jobs.size()
+
+                max_qoe = min(max_proc_qoe, max_trans_qoe)
+
+                color = interpolate_color(0, max_qoe, veh.job.qoe)
+                color_with_alpha = (*color, 255)
+
+                polygons_to_add.append(
+                    (
+                        f"dynamic_line_rsu{rsu.id}_to_{veh.vehicle_id}",
+                        [
+                            (
+                                rsu.position.x,
+                                rsu.position.y,
+                            ),
+                            (veh.position.x, veh.position.y),
+                        ],
+                        color_with_alpha,
+                    )
                 )
-            )
 
         for polygon_id, points, color in polygons_to_add:
             self.sumo.polygon.add(

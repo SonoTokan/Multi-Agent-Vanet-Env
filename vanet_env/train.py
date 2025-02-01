@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import math
 import sys
 import os
 
@@ -61,9 +62,11 @@ def main(args):
 
     n_training_threads = 1
     cuda_deterministic = False
-    time_spilit = False
+    time_spilit = True
+    use_cadp = True
+    cadp_breakpoint = math.floor(max_step * 0.1)
     env_name = "vanet"
-    alg_name = "ippo"
+    alg_name = "rmappo"
     exp_prefix = "time_all" if not time_spilit else "time_spilitted"
     use_wandb = True
     seed = SEED
@@ -76,12 +79,23 @@ def main(args):
 
     print("seed is :", all_args.seed)
 
+    all_args.use_cadp = use_cadp
+    all_args.cadp_breakpoint = cadp_breakpoint
+    all_args.critic_lr = 4e-4
+    all_args.lr = 5e-4
     all_args.num_env_steps = max_step
     all_args.episode_length = env_max_step if not time_spilit else env_max_step // 10
     all_args.log_interval = 1
     all_args.algorithm_name = alg_name
     all_args.experiment_name = (
-        exp_prefix + "_" + "Mulit_discrete" if is_discrete else exp_prefix + "_" + "Box"
+        (
+            exp_prefix + "_" + "Mulit_discrete"
+            if is_discrete
+            else exp_prefix + "_" + "Box"
+        )
+        + "_cadp"
+        if use_cadp
+        else ""
     )
 
     if all_args.algorithm_name == "rmappo":
