@@ -84,6 +84,8 @@ class Env(ParallelEnv):
         self.max_step = max_step
         self.caching_fps = caching_fps
         self.caching_step = max_step // caching_fps
+        self.caching_ratio_dict = []
+        self.ava_rewards = []
 
         random.seed(self.seed)
 
@@ -182,8 +184,46 @@ class Env(ParallelEnv):
 
         self.icon_path = os.path.join(os.path.dirname(__file__), "assets", "rsu.png")
 
-        # start sumo sim
+        # start sumo sim and plot
         if self.render_mode is not None:
+            # 初始化数据
+            self.steps = []
+            self.utilities = []
+            self.caching_ratios = []
+
+            # 创建图表
+            plt.ion()  # 开启交互模式
+            plt.rcParams["toolbar"] = "None"
+
+            self.fig, (self.ut_ax, self.ca_ax) = plt.subplots(
+                2, 1, figsize=(8, 6)
+            )  # 创建两个子图，上下排列
+            (self.ut_line,) = self.ut_ax.plot(
+                self.steps, self.utilities, "r-", label="Utility"
+            )  # 创建初始的线
+            self.ut_ax.set_xlabel("Step")
+            self.ut_ax.set_ylabel("Averge Utility")
+            self.ut_ax.set_title("Utility over Steps")
+            self.ut_ax.legend()
+
+            # 初始化第二个图表（caching ratio vs step）
+            (self.ca_line,) = self.ca_ax.plot(
+                self.steps, self.caching_ratios, "b-", label="Hit Ratio"
+            )
+            self.ca_ax.set_xlabel("Step")
+            self.ca_ax.set_ylabel("Averge Caching Hit Ratio")
+            self.ca_ax.set_title("Caching Ratio over Steps")
+            self.ca_ax.legend()
+
+            # 调整子图间距
+            plt.tight_layout()
+            # 设置窗口位置和大小
+            fig_manager = plt.get_current_fig_manager()
+            if hasattr(fig_manager, "window"):
+                fig_manager.window.attributes("-topmost", 1)  # 置顶窗口
+                # fig_manager.window.geometry(
+                #     "200x500+1300+300"
+                # )  # 宽度x高度+水平偏移+垂直偏移
 
             self.sumo.start(
                 ["sumo-gui", "-c", self.cfg_file_path, "--step-length", "1", "--start"]
@@ -202,6 +242,26 @@ class Env(ParallelEnv):
                     imgFile=self.icon_path,
                     layer=20,
                 )
+
+            # paint resource capicity
+            # for rsu in self.rsus:
+            #     max_ee = env_config.MAX_EE
+            #     offset = 2
+            #     width = 2
+            #     height = 1
+            #     x1 = rsu.position.x + offset
+            #     y1 = rsu.position.y
+            #     x2 = rsu.position.x + offset
+            #     y2 = rsu.position.y + height
+            #     self.sumo.polygon.add(
+            #         f"resource_rsu{rsu.id}",
+            #         [(x1, y1), (x2, y2)],
+            #         color=(205, 254, 194, 255),
+            #         fill=False,
+            #         lineWidth=2,
+            #         layer=40,
+            #     )
+
             # paint range
             for rsu in self.rsus:
                 num_segments = 36
@@ -220,6 +280,7 @@ class Env(ParallelEnv):
                         lineWidth=0.2,
                         layer=20,
                     )
+
         else:
             # check SUMO bin
             sumoBinary = checkBinary("sumo")
@@ -789,6 +850,7 @@ class Env(ParallelEnv):
 
     def _calculate_box_rewards(self):
         rewards = {}
+        reward_per_agent = []
 
         rsu_qoe_dict, caching_ratio_dict = utility_light.calculate_box_utility(
             vehs=self.vehicles,
@@ -800,6 +862,7 @@ class Env(ParallelEnv):
         )
 
         self.rsu_qoe_dict = rsu_qoe_dict
+
         for rid, ratio in caching_ratio_dict.items():
             self.rsus[rid].hit_ratios.append(ratio)
 
@@ -819,6 +882,13 @@ class Env(ParallelEnv):
                 rewards[agent] = np.mean(flattened)
             else:
                 rewards[agent] = 0.0
+
+        for idx, agent in enumerate(self.agents):
+
+            if not self.rsus[idx].idle:
+                reward_per_agent.append(rewards[agent])
+
+        self.ava_rewards.append(np.mean(reward_per_agent))
 
         return rewards
 
@@ -886,6 +956,102 @@ class Env(ParallelEnv):
         # Batch add polygons
         polygons_to_add = []
 
+        """
+            for rsu in self.rsus:
+                max_ee = env_config.MAX_EE
+                offset = 2
+                width = 2
+                height = 1
+                x1 = rsu.position.x + offset
+                y1 = rsu.position.y
+                x2 = rsu.position.x + offset
+                y2 = rsu.position.y + height
+                self.sumo.polygon.add(
+                    f"resource_rsu{rsu.id}",
+                    [(x1, y1), (x2, y2)],
+                    color=(205, 254, 194, 255),
+                    fill=False,
+                    lineWidth=2,
+                    layer=40,
+                )
+        """
+
+        # render ee
+        for rsu in self.rsus:
+            rsu: Rsu
+            max_ee = env_config.MAX_EE
+            offset = 10
+            width = 6
+            height = 10
+
+            # jobs_x1 = rsu.position.x - offset
+            # jobs_y1 = rsu.position.y
+            # jobs_x2 = rsu.position.x - offset
+
+            # norm_self_handling_ratio = (
+            #     sum([v[1] for v in rsu.handling_jobs.olist if v is not None])
+            #     / rsu.handling_jobs.max_size
+            # )
+            # jobs_y2 = rsu.position.y + height * max(norm_self_handling_ratio, 0.1)
+
+            x1 = rsu.position.x + offset
+            y1 = rsu.position.y
+            x2 = rsu.position.x + offset
+            y2 = rsu.position.y + height * max(rsu.cp_usage, 0.1)
+
+            if not rsu.idle:
+                color = interpolate_color(
+                    0, 1, rsu.cp_usage, is_reverse=True
+                )  # 越高越红，越低越绿
+                # job_color = interpolate_color(
+                #     0, 1, norm_self_handling_ratio, is_reverse=True
+                # )  # 越高越红，越低越绿
+            else:
+                y2 = rsu.position.y + height * 0.1
+                color = interpolate_color(
+                    0, 1, 0.1, is_reverse=True
+                )  # 越高越红，越低越绿
+
+                # job_color = interpolate_color(
+                #     0, 1, 0.1, is_reverse=True
+                # )  # 越高越红，越低越绿
+                # jobs_y2 = rsu.position.y + height * 0.1
+
+            color_with_alpha = (*color, 255)
+            # job_color_with_alpha = (*job_color, 255)
+
+            polygons_to_add.append(
+                (
+                    f"dynamic_resource_rsu{rsu.id}",
+                    [
+                        (
+                            x1,
+                            y1,
+                        ),
+                        (x2, y2),
+                    ],
+                    color_with_alpha,
+                    False,
+                    width,
+                )
+            )
+
+            # polygons_to_add.append(
+            #     (
+            #         f"dynamic_job_rsu{rsu.id}",
+            #         [
+            #             (
+            #                 jobs_x1,
+            #                 jobs_y1,
+            #             ),
+            #             (jobs_x2, jobs_y2),
+            #         ],
+            #         job_color_with_alpha,
+            #         False,
+            #         width,
+            #     )
+            # )
+
         # render QoE
         # not correct now
         for rsu in self.rsus:
@@ -895,34 +1061,39 @@ class Env(ParallelEnv):
                     continue
 
                 veh: Vehicle
-                # 需要拉上所有鄰居嗎
 
-                # if rsu.connections.size() == 0:
-                #     # 不可能会到这里
-                #     max_trans_qoe = 1e-6
-                # else:
-                #     max_trans_qoe = (
-                #         env_config.MAX_QOE
-                #         * self.max_data_rate
-                #         * rsu.num_atn
-                #         / env_config.JOB_DR_REQUIRE
-                #     ) / rsu.connections.size()
+                if False:
+                    pass
+                    # 需要拉上所有鄰居嗎
 
-                # if rsu.handling_jobs.size() == 0:
-                #     # 不知道为什么有可能会到这里
-                #     max_proc_qoe = 1e-6
-                # else:
+                    # if rsu.connections.size() == 0:
+                    #     # 不可能会到这里
+                    #     max_trans_qoe = 1e-6
+                    # else:
+                    #     max_trans_qoe = (
+                    #         env_config.MAX_QOE
+                    #         * self.max_data_rate
+                    #         * rsu.num_atn
+                    #         / env_config.JOB_DR_REQUIRE
+                    #     ) / rsu.connections.size()
 
-                #     max_proc_qoe = (
-                #         env_config.MAX_QOE
-                #         * rsu.computation_power
-                #         * 1
-                #         / env_config.JOB_CP_REQUIRE
-                #     ) / rsu.handling_jobs.size()
+                    # if rsu.handling_jobs.size() == 0:
+                    #     # 不知道为什么有可能会到这里
+                    #     max_proc_qoe = 1e-6
+                    # else:
 
-                # max_qoe = min(max_proc_qoe, max_trans_qoe)
+                    #     max_proc_qoe = (
+                    #         env_config.MAX_QOE
+                    #         * rsu.computation_power
+                    #         * 1
+                    #         / env_config.JOB_CP_REQUIRE
+                    #     ) / rsu.handling_jobs.size()
 
-                color = interpolate_color(0, env_config.MAX_QOE, veh.job.qoe)
+                    # max_qoe = min(max_proc_qoe, max_trans_qoe)
+
+                max_qoe = max(env_config.MAX_QOE * 0.7, veh.job.qoe)
+
+                color = interpolate_color(0, max_qoe * 0.7, veh.job.qoe)
                 color_with_alpha = (*color, 255)
 
                 polygons_to_add.append(
@@ -936,12 +1107,19 @@ class Env(ParallelEnv):
                             (veh.position.x, veh.position.y),
                         ],
                         color_with_alpha,
+                        False,
+                        0.3,
                     )
                 )
 
-        for polygon_id, points, color in polygons_to_add:
+        for polygon_id, points, color, is_fill, line_width in polygons_to_add:
             self.sumo.polygon.add(
-                polygon_id, points, color=color, fill=False, lineWidth=0.3, layer=30
+                polygon_id,
+                points,
+                color=color,
+                fill=is_fill,
+                lineWidth=line_width,
+                layer=41,
             )
 
     def render(self, mode=None):
@@ -951,6 +1129,38 @@ class Env(ParallelEnv):
             # human
             if mode is not None:
                 # get veh ID
+
+                # draw utility
+                # 模拟utility的计算
+                mean_ut = np.nanmean(self.ava_rewards)
+                cas = []
+
+                for rsu in self.rsus:
+                    cas = np.nanmean(rsu.hit_ratios)
+
+                # self.ava_rewards = []
+
+                if not np.isnan(mean_ut):
+                    self.utilities.append(mean_ut)
+
+                # 更新数据
+                if self.utilities:
+                    self.steps.append(self.timestep)
+
+                    self.caching_ratios.append(np.mean(cas))
+
+                    # 更新图表
+                    self.ut_line.set_xdata(self.steps)
+                    self.ut_line.set_ydata(self.utilities)
+                    self.ut_ax.relim()  # 重新计算坐标轴范围
+                    self.ut_ax.autoscale_view()  # 自动调整坐标轴范围
+
+                    self.ca_line.set_xdata(self.steps)
+                    self.ca_line.set_ydata(self.caching_ratios)
+                    self.ca_ax.relim()  # 重新计算坐标轴范围
+                    self.ca_ax.autoscale_view()  # 自动调整坐标轴范围
+                    plt.draw()
+                    self.fig.canvas.flush_events()
 
                 # clear all dynamic rendered polygon
                 # draw QoE
@@ -967,6 +1177,8 @@ class Env(ParallelEnv):
     def close(self):
         self.sumo.close()
         self.sumo_has_init = False
+        plt.ioff()
+        plt.close()
         return super().close()
 
     @functools.lru_cache(maxsize=None)

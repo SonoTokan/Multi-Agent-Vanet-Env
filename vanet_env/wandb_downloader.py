@@ -7,7 +7,7 @@ run = wandb.init()
 api = wandb.Api()
 
 # 获取运行数据
-run_path = "1399858762-fjnu/Vanet/runs/vfgikzgk"
+run_path = "1399858762-fjnu/Vanet/runs/zqu2nnwi"
 run = api.run(run_path)
 
 # 获取历史数据
@@ -17,6 +17,6 @@ history = run.history(keys=None, samples=10241)
 df = pd.DataFrame(history)
 
 # 保存为 CSV 文件
-df.to_csv("wandb_history_data.csv", index=False)
+df.to_csv("rmappo_ta.csv", index=False)
 
-print("数据已成功导出到 wandb_history_data.csv")
+print("数据已成功导出")

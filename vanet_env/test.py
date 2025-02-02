@@ -127,9 +127,72 @@ def sumo_env_test():
         env.step({})
 
 
+def draw():
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import time
+
+    # 初始化数据
+    steps = []
+    utilities = []
+    caching_ratios = []
+
+    # 创建图表
+    plt.ion()  # 开启交互模式
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6))  # 创建两个子图，上下排列
+
+    # 初始化第一个图表（utility vs step）
+    (line1,) = ax1.plot(steps, utilities, "r-", label="Utility")
+    ax1.set_xlabel("Step")
+    ax1.set_ylabel("Utility")
+    ax1.set_title("Utility over Steps")
+    ax1.legend()
+
+    # 初始化第二个图表（caching ratio vs step）
+    (line2,) = ax2.plot(steps, caching_ratios, "b-", label="Caching Ratio")
+    ax2.set_xlabel("Step")
+    ax2.set_ylabel("Caching Ratio")
+    ax2.set_title("Caching Ratio over Steps")
+    ax2.legend()
+
+    # 调整子图间距
+    plt.tight_layout()
+
+    # 模拟数据更新
+    for step in range(100):  # 假设有100个step
+        # 模拟utility和caching ratio的计算
+        utility = np.random.rand()  # 随机数代替utility
+        caching_ratio = np.random.rand()  # 随机数代替caching ratio
+
+        # 更新数据
+        steps.append(step)
+        utilities.append(utility)
+        caching_ratios.append(caching_ratio)
+
+        # 更新第一个图表（utility）
+        line1.set_xdata(steps)
+        line1.set_ydata(utilities)
+        ax1.relim()  # 重新计算坐标轴范围
+        ax1.autoscale_view()  # 自动调整坐标轴范围
+
+        # 更新第二个图表（caching ratio）
+        line2.set_xdata(steps)
+        line2.set_ydata(caching_ratios)
+        ax2.relim()  # 重新计算坐标轴范围
+        ax2.autoscale_view()  # 自动调整坐标轴范围
+
+        # 绘制更新
+        plt.draw()
+        plt.pause(0.1)  # 暂停0.1秒以模拟实时更新
+
+    plt.ioff()  # 关闭交互模式
+    plt.show()
+
+
 if __name__ == "__main__":
     # cProfile.run("sumo_env_test()", sort="time")
-    sumo_env_test()
+    # sumo_env_test()
+    draw()
     # is_full = np.array([True, False, False])
     # is_in = np.array([False, True, False])
     # update_mask = is_full & is_in  # 需要更新的 RSU

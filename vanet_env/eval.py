@@ -38,9 +38,22 @@ from vanet_env.onpolicy.envs.env_wrappers import (
 env_max_step = 10240
 max_step = env_max_step * 1000
 is_discrete = True
+render_mode = "human"
 
 
 def make_eval_env():
+    def get_env_fn():
+        def init_env():
+            env = Env(render_mode, max_step=env_max_step, is_discrete=is_discrete)
+
+            return env
+
+        return init_env
+
+    return ShareDummyVecEnv([get_env_fn()], is_discrete=is_discrete)
+
+
+def make_train_env():
     def get_env_fn():
         def init_env():
             env = Env(None, max_step=env_max_step, is_discrete=is_discrete)
@@ -336,14 +349,7 @@ def rmappo(args):
     all_args.algorithm_name = "rmappo"
     all_args.experiment_name = "Mulit_discrete" if is_discrete else "Box"
     model_dir = "C:\\Users\\chentokan\\Documents\\Figs_Data\\model"
-    # all_args.model_dir = (
-    #     Path(
-    #         os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
-    #         + "/saved_model"
-    #     )
-    #     / all_args.algorithm_name
-    #     / all_args.experiment_name
-    # )
+
     all_args.model_dir = model_dir
 
     if all_args.algorithm_name == "rmappo":
@@ -428,7 +434,7 @@ def rmappo(args):
     np.random.seed(seed)
 
     # env
-    envs = make_eval_env()
+    envs = make_train_env()
     eval_envs = make_eval_env()
 
     # eval_envs = make_eval_env()
@@ -467,15 +473,15 @@ def rmappo(args):
         runner.writter.close()
 
 
-def other_policy():
+def other_policy(args, render=None):
     exp_name = "multi_discrete"
     alg_name = "random_strategy"
-
-    log = True
     # alg_name = "heuristic_strategy"
 
+    log = True
+
     step = 10240
-    env = env_light.Env(None, max_step=step)
+    env = env_light.Env(render, max_step=step)
     strategies = MultiAgentStrategies(env)
 
     if log:
@@ -511,7 +517,8 @@ def main(args):
     # cProfile.run("other_policy()", sort="time")
     profiler = cProfile.Profile()
     profiler.enable()
-    rmappo(args)
+    other_policy(args, "human")
+    # rmappo(args)
     profiler.disable()
     # 创建 Stats 对象并排序
     stats = pstats.Stats(profiler)

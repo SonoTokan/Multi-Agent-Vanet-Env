@@ -170,7 +170,7 @@ def sumo_detector():
         sys.exit("please declare environment variable 'SUMO_HOME'")
 
 
-def interpolate_color(min_val, max_val, value):
+def interpolate_color(min_val, max_val, value, is_reverse=False):
     """
     Linear interpolation between red, yellow and green according to the given values.
 
@@ -179,6 +179,9 @@ def interpolate_color(min_val, max_val, value):
     :param value: current value
     :return: (r, g, b) color value
     """
+    if is_reverse:
+        value = max_val - value
+
     # Insure in range
     value = max(min_val, min(max_val, value))
 
