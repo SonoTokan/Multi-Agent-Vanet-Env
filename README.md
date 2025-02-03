@@ -4,4 +4,6 @@
 
 This project aims to create multi vanet env
 
+![Alt Text](random_139.gif)
+
 [简体中文](README_CN.md)
