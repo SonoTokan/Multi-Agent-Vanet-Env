@@ -3,10 +3,10 @@ import os
 import pstats
 import sys
 
+sys.path.append("./")
 import numpy as np
 from shapely import Point
 
-sys.path.append("./")
 
 import cProfile
 from pettingzoo.test import parallel_api_test
