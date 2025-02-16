@@ -53,6 +53,8 @@ from sumolib import checkBinary
 # next performance improvement
 import multiprocessing as mp
 
+import datetime
+
 
 def raw_env(render_mode=None):
     env = Env(render_mode=render_mode)
@@ -72,7 +74,8 @@ class Env(ParallelEnv):
         max_step=36000,  # need focus on fps
         seed=env_config.SEED,
         is_discrete=True,
-        handler=handler.MappoHandler,
+        handler=handler.TrajectoryHandler,
+        map="seattle",
     ):
 
         self.is_discrete = is_discrete
@@ -87,6 +90,7 @@ class Env(ParallelEnv):
         self.caching_step = max_step // caching_fps
         self.caching_ratio_dict = []
         self.ava_rewards = []
+        self.map = map
 
         random.seed(self.seed)
 
@@ -159,11 +163,10 @@ class Env(ParallelEnv):
 
         self.content_loaded = False
         self.handler_class = handler
-        
+
         self._handler_init()
         self._space_init()
         self._sumo_init()
-        
 
     def _handler_init(self):
         self.handler = self.handler_class(self)
@@ -183,12 +186,12 @@ class Env(ParallelEnv):
         print("sumo init")
 
         self.cfg_file_path = os.path.join(
-            os.path.dirname(__file__), "assets", "seattle", "sumo", "osm.sumocfg"
+            os.path.dirname(__file__), "assets", self.map, "sumo", "osm.sumocfg"
         )
 
-        gui_settings_path = os.path.join(
-            os.path.dirname(__file__), "assets", "seattle", "sumo", "gui_hide_all.xml"
-        )
+        # gui_settings_path = os.path.join(
+        #     os.path.dirname(__file__), "assets", self.map, "sumo", "gui_hide_all.xml"
+        # )
 
         self.icon_path = os.path.join(os.path.dirname(__file__), "assets", "rsu.png")
 
@@ -306,9 +309,11 @@ class Env(ParallelEnv):
         self.handler.spaces_init()
 
     def reset(self, seed=env_config.SEED, options=None):
+        self.start_time = datetime.datetime.now()
         return self.handler.reset(seed)
 
     def step(self, actions):
+
         return self.handler.step(actions)
 
     # improve：返回polygons然后后面统一绘制？
@@ -539,6 +544,8 @@ class Env(ParallelEnv):
         self.sumo_has_init = False
         plt.ioff()
         plt.close()
+        self.endtime = datetime.datetime.now()
+
         return super().close()
 
     @functools.lru_cache(maxsize=None)

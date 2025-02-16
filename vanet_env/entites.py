@@ -268,6 +268,7 @@ class Rsu:
         self.connections = OrderedQueueList(max_connections * 3)
         self.handling_job_queue = OrderedQueueList(max_cores)  # may not necessary
         self.handling_jobs = OrderedQueueList(max_cores * 3)
+        self.pre_handling_jobs = OrderedQueueList(max_cores * 3)
         self.bw_alloc = OrderedQueueList(max_connections)
         self.computation_power_alloc = OrderedQueueList(max_cores)
         self.real_cp_alloc = OrderedQueueList(max_cores)

@@ -296,12 +296,23 @@ class VANETRunner(Runner):
 
         eval_episode_rewards = []
         one_episode_rewards = []
+        one_episode_ava_rewards = []
+        idle_masks = []
         # avg for every single agent
         qoes = []
         ees = []
         hit_ratios = []
 
         eval_obs, eval_share_obs, dones, infos = self.eval_envs.reset()
+
+        idle_mask = np.array(
+            [
+                [info[agent_id]["idle"] for agent_id in range(self.num_agents)]
+                for info in infos
+            ]
+        )
+
+        idle_masks.append(idle_mask)
 
         eval_rnn_states = np.zeros(
             (
@@ -336,6 +347,15 @@ class VANETRunner(Runner):
                 self.eval_envs.step(eval_actions)
             )
 
+            idle_mask = np.array(
+                [
+                    [info[agent_id]["idle"] for agent_id in range(self.num_agents)]
+                    for info in eval_infos
+                ]
+            )
+
+            idle_masks.append(idle_mask)
+
             # 假设只有一个env，如果需要n_eval_rollout_threads需要再调整
             # 只需计算in range car的qoe
             vehs_qoe = defaultdict(list)
@@ -357,6 +377,14 @@ class VANETRunner(Runner):
             hit_ratios.append(list(rsus_avg_hit_ratio.values()))
 
             one_episode_rewards.append(eval_rewards)
+            active_masks = np.ones(
+                (self.n_rollout_threads, self.num_agents, 1), dtype=np.float32
+            )
+            active_masks[(idle_masks[time_step] == True)] = 0
+
+            ava_rews = (eval_rewards * active_masks).sum() / (active_masks.sum() + 1e-6)
+
+            one_episode_ava_rewards.append(ava_rews)
 
             eval_dones_env = np.all(eval_dones, axis=1)
 
@@ -380,6 +408,7 @@ class VANETRunner(Runner):
 
             if time_step % log_interval == 0:
                 avg_rew = np.mean(one_episode_rewards, axis=0)
+                avg_ava_rew = np.mean(one_episode_ava_rewards)
 
                 eval_env_infos = {log_prefix + "eval_average_step_rewards": avg_rew}
                 self.log_env(eval_env_infos, time_step)
@@ -391,8 +420,8 @@ class VANETRunner(Runner):
                 print(
                     (
                         log_prefix
-                        + "avg qoe is {}, avg ee is {}, avg caching hit ratio is {}."
-                    ).format(avg_qoe, avg_ee, avg_hit_ratio)
+                        + "avg qoe is {}, avg ee is {}, avg caching hit ratio is {}, avg awa reward is {}."
+                    ).format(avg_qoe, avg_ee, avg_hit_ratio, avg_ava_rew)
                 )
                 if self.use_wandb:
                     wandb.log(
@@ -400,6 +429,7 @@ class VANETRunner(Runner):
                             log_prefix + "avg qoe": avg_qoe,
                             log_prefix + "avg ee ": avg_ee,
                             log_prefix + "avg hit ratio ": avg_hit_ratio,
+                            log_prefix + "avg ava reward": avg_ava_rew,
                         },
                         step=time_step,
                     )

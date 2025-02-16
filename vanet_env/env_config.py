@@ -1,3 +1,4 @@
+import math
 import sys
 
 sys.path.append("./")
@@ -8,7 +9,7 @@ sys.path.append("./")
 #         self.path_loss = "OkumuraHata"
 #         self.rsu = Rsu()
 SEED = 114514
-
+MAP_NAME = "london"
 # Canvas Size
 # MAP_SIZE = (400, 400)
 
@@ -23,10 +24,14 @@ ROAD_WIDTH = 10
 RSU_POSITIONS = []
 
 # roadside_down
-for x in range(40, 400, 90):
-    for y in range(0, 77 * 5, 77):
-        RSU_POSITIONS.append((x, y))
-
+if MAP_NAME != "london":
+    for x in range(40, 400, 90):
+        for y in range(0, 77 * 5, 77):
+            RSU_POSITIONS.append((x, y))
+else:
+    for x in range(40, 400, 90):
+        for y in range(0, 77 * 5, 77):
+            RSU_POSITIONS.append((x, y))
 # roadside_up
 # for x in range(0, 400, 100):
 #     for y in range(17, (77 + 17) * 5, 77 + 17):
@@ -108,15 +113,21 @@ HOP_LATENCY = 3
 HOP_OPT_FACTOR = 90
 # vrc Meta Quest 2 with Complex Avatar 35-65 tflops, 25-70 Mbps
 # 90fps -> 1frame=0.01111 s -> 11.11ms
-JOB_CP_REQUIRE = 40
+W = 2160
+H = 2160
+CP_REQUIRE_PIX = 9.5e4
+FPS_REQUIRE = 90
+# tflops
+JOB_CP_REQUIRE = math.ceil(W * H * CP_REQUIRE_PIX * FPS_REQUIRE * 1e-12)
+# mbps
 JOB_DR_REQUIRE = 40
 JOB_FPS_REQUIRE = 90
 # latency factor
-LATENCY_FACTOR = ...
+LATENCY_FACTOR = 0.5
 MAX_QOE = 1.0
 
 
 # computational factor
-COMPUTATIONAL_FACTOR = ...
+COMPUTATIONAL_FACTOR = 0.5
 
 print("config loaded")

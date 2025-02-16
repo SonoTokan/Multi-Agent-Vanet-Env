@@ -19,15 +19,18 @@ from vanet_env.onpolicy.envs.env_wrappers import (
 )
 
 
-env_max_step = 10240
+env_max_step = 10850
 max_step = env_max_step * 1000
 is_discrete = True
+map_name = "london"
 
 
 def make_train_env():
     def get_env_fn():
         def init_env():
-            env = Env(None, max_step=env_max_step, is_discrete=is_discrete)
+            env = Env(
+                None, max_step=env_max_step, is_discrete=is_discrete, map=map_name
+            )
 
             return env
 
@@ -39,7 +42,9 @@ def make_train_env():
 def make_eval_env():
     def get_env_fn():
         def init_env():
-            env = Env(None, max_step=env_max_step, is_discrete=is_discrete)
+            env = Env(
+                None, max_step=env_max_step, is_discrete=is_discrete, map=map_name
+            )
             return env
 
         return init_env
@@ -62,17 +67,20 @@ def main(args):
 
     n_training_threads = 1
     cuda_deterministic = False
+    # trick1: time-spilit
     time_spilit = False
+    # trick2: self-attention
     use_cadp = True
-    cadp_breakpoint = math.floor(max_step * 0.1)
+    cadp_breakpoint = math.floor(max_step * 0.01)
     env_name = "vanet"
-    alg_name = "rmappo"
+    alg_name = "ippo"
     exp_prefix = "time_all" if not time_spilit else "time_spilitted"
     use_wandb = True
     seed = SEED
     use_eval = False
     parser = get_config()
     all_args = parse_args(args, parser)
+    all_args.map_name = map_name
 
     if not all_args.seed_specify:
         all_args.seed = np.random.randint(10000, 100000)

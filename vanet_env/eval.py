@@ -35,16 +35,23 @@ from vanet_env.onpolicy.envs.env_wrappers import (
 )
 
 
-env_max_step = 10240
+env_max_step = 10850
 max_step = env_max_step * 1000
 is_discrete = True
 render_mode = "human"
+# map_name = "london"
+map_name = "seattle"
 
 
 def make_eval_env():
     def get_env_fn():
         def init_env():
-            env = Env(render_mode, max_step=env_max_step, is_discrete=is_discrete)
+            env = Env(
+                render_mode,
+                max_step=env_max_step,
+                is_discrete=is_discrete,
+                map=map_name,
+            )
 
             return env
 
@@ -56,7 +63,9 @@ def make_eval_env():
 def make_train_env():
     def get_env_fn():
         def init_env():
-            env = Env(None, max_step=env_max_step, is_discrete=is_discrete)
+            env = Env(
+                None, max_step=env_max_step, is_discrete=is_discrete, map=map_name
+            )
 
             return env
 
@@ -224,31 +233,77 @@ class MultiAgentStrategies:
         return [actions]
 
     def fairalloc_strategy(self, obs, infos):
-        pass
+        """
+        fairalloc_strategy 使用 max-min 公平分配的思想，
+        在自身与邻居之间均分可分配的资源bins，并对其它资源指标采用中间值分配策略，
+        以实现公平分配。
 
-    # def heuristic_strategy(self, obs):
-    #     """
-    #     A heuristic strategy balancing load among neighboring RSUs.
+        与 heuristic_strategy 不同，该策略不再依据当前的空闲状态动态调整，
+        而是采用固定的“中间值”作为各项指标的分配值，从而在负载不均或数据噪声较大的情况下，
+        也能实现一种较为稳定的公平分配。
 
-    #     Returns:
-    #         actions: Dict mapping agent IDs to heuristic-based actions.
-    #     """
-    #     actions = {}
-    #     for idx, agent in enumerate(self.env.agents):
+        注意：具体数值（例如中间值2）可以根据实际情况修改。
+        """
+        actions = []
+        for idx, agent in enumerate(self.env.agents):
+            agent_obs = obs[agent]
+            local_obs = agent_obs["local_obs"]
 
-    #         obs = obs[idx]
-    #         local_obs = obs["local_obs"]
+            # 获取与自身有关的状态（仅用于其它判断，本策略中主要忽略空闲比例）
+            self_handlings = local_obs[1]
+            nb_state = local_obs[4]
+            # 其余状态如 queue_connections、connected 等也可以用于其它判断
+            queue_connections = local_obs[2]
+            connected = local_obs[3]
+            idle_connected = 1 - connected
 
-    #         # Example heuristic: prioritize balancing load and minimizing connections queue.
-    #         # Simplified as assigning higher resources to underutilized RSUs.
-    #         neighbor_loads = local_obs[2:]  # Extract neighboring RSU loads.
-    #         target = np.argmin(neighbor_loads)  # Select the least loaded RSU.
+            # 对于 self 和 neighbor 的资源分配，采用 max-min 公平原则，即尽可能均分
+            # 注意：bins 总量可能为奇数，此处我们将其尽可能均分，自身获得 floor(bins/2)，邻居获得剩余部分
+            fair_share_self = self.env.bins // 2
+            fair_share_nb = self.env.bins - fair_share_self
 
-    #         action = np.zeros(self.action_spaces[agent].shape)
-    #         action[target] = 1.0  # Fully allocate resources to the selected RSU.
-    #         actions[agent] = action
+            # action_space 中第 0 部分表示自有资源分配，第 1 部分表示邻居资源分配
+            self_mratio = [fair_share_self] * self.env.action_space_dims[0]
+            nb_mratio = [fair_share_nb] * self.env.action_space_dims[1]
 
-    #     return [actions]
+            # 对于其它资源调度参数，由于不再考虑当前状态的极端情况，
+            # 故我们统一使用中间值（比如2）作为分配指标，达到公平分配的目的
+            # 注意：这里给定的数值 2 是在允许的离散取值范围内的中间值，可根据环境实际情况修改
+            job_ratios = [2] * self.env.action_space_dims[2]
+            cp_alloc = [2] * self.env.action_space_dims[3]
+            bw_alloc = [2] * self.env.action_space_dims[4]
+            cp_usage = [2] * self.env.action_space_dims[5]
+
+            # 对于缓存内容（caching），可以根据当前最近连接车辆的任务类型来决定
+            rsu = self.env.rsus[idx]
+            veh_id = rsu.range_connections.last()
+            if veh_id in self.env.vehicle_ids:
+                caching_content = [self.env.vehicles[veh_id].job_type]
+            else:
+                # 若当前无有效车辆连接，则随机选择一个 job_type
+                caching_content = [
+                    int(np.random.choice([i for i in range(self.env.bins)]))
+                ]
+
+            # 将各个部分拼接成一个完整的 action 向量
+            action = (
+                self_mratio
+                + nb_mratio
+                + job_ratios
+                + cp_alloc
+                + bw_alloc
+                + cp_usage
+                + caching_content
+            )
+
+            # 检查生成的 action 是否在允许的 action_space 内
+            if not self.action_spaces[agent].contains(action):
+                print("action 不在 action_space 内")
+                raise IndexError("生成的 action 超出合法范围！")
+
+            actions.append(action)
+
+        return [actions]
 
     def run_experiment(self, strategy=None, strategy_name=None, steps=1000):
         """
@@ -269,18 +324,33 @@ class MultiAgentStrategies:
             elif strategy_name == "heuristic_strategy":
                 self.strategy = self.heuristic_strategy
             else:
-                self.strategy = self.random_strategy
+                self.strategy = self.fairalloc_strategy
         qoe_records = []
 
         ee_records = []
         resource_records = []
         reward_records = []
+        ava_reward_records = []
         hit_ratio_records = []
+        idle_masks = []
 
         obs, _, infos = self.env.reset()
-        for _ in range(steps):
+
+        idle_mask = np.array(
+            [infos[agent_id]["idle"] for agent_id in self.env.possible_agents]
+        )
+
+        idle_masks.append(idle_mask)
+
+        for time_step in range(steps - 1):
             actions = self.strategy(obs, infos)
             obs, rewards, _, _, infos = self.env.step(actions)
+
+            idle_mask = np.array(
+                [infos[agent_id]["idle"] for agent_id in self.env.possible_agents]
+            )
+
+            idle_masks.append(idle_mask)
 
             # Gather metrics.
             qoe = np.mean([float(v.job.qoe) for v in self.env.vehicles.values()])
@@ -296,20 +366,29 @@ class MultiAgentStrategies:
                         # 为什么ee至少有1.0
                         ees.append(float(rsu.ee))
 
+            active_masks = np.ones((self.num_agents), dtype=np.float32)
+
+            active_masks[(idle_masks[time_step] == True)] = 0
             # resource_usage = np.mean([rsu.cp_usage for rsu in self.env.rsus])
             if rewards != []:
                 reward = np.mean([reward for reward in rewards.values()])
+                ava_rews = (np.array(list(rewards.values())) * active_masks).sum() / (
+                    active_masks.sum() + 1e-6
+                )
 
             qoe_records.append(np.mean(qoe_real))
             ee_records.append(np.mean(ees))
             # resource_records.append(resource_usage)
             reward_records.append(reward)
+            ava_reward_records.append(ava_rews)
             hit_ratio_records.append(np.nanmean(hit_ratios))
 
+        self.env.close()
         return {
             "QoE": qoe_records,
             "EE": ee_records,
             "Rewards": reward_records,
+            "Ava_rewards": ava_reward_records,
             "Hit_ratio": hit_ratio_records,
         }
 
@@ -330,7 +409,7 @@ def rmappo(args):
     n_training_threads = 1
     cuda_deterministic = False
     env_name = "vanet"
-    alg_name = "rMAPPO"
+    alg_name = "rMAPPO_ts"
     use_wandb = True
     seed = SEED
     is_eval = True
@@ -475,13 +554,14 @@ def rmappo(args):
 
 def other_policy(args, render=None):
     exp_name = "multi_discrete"
-    alg_name = "random_strategy"
-    # alg_name = "heuristic_strategy"
+    # alg_name = "random_strategy"
+    alg_name = "heuristic_strategy"
+    # alg_name = "fairalloc_strategy"
 
     log = True
 
-    step = 10240
-    env = env_light.Env(render, max_step=step)
+    step = env_max_step
+    env = env_light.Env(render, max_step=step, map=map_name)
     strategies = MultiAgentStrategies(env)
 
     if log:
@@ -491,18 +571,24 @@ def other_policy(args, render=None):
         av = np.mean(metrics["Rewards"])
         avg_qoe = np.mean(metrics["QoE"])
         avg_hit_ratio = np.nanmean(metrics["Hit_ratio"])
+        avg_ava_rew = np.mean(metrics["Hit_ratio"])
         print(f"{alg_name}_avg_step_reward:{av}")
         print(f"{alg_name}_avg_step_qoe:{avg_qoe}")
         print(f"{alg_name}_avg_step_hit_ratio:{avg_hit_ratio}")
-        df = pd.DataFrame(metrics, columns=["QoE", "EE", "Rewards", "Hit_ratio"])
+        print(f"{alg_name}_avg_step_ava_reward:{avg_ava_rew}")
+
+        df = pd.DataFrame(
+            metrics, columns=["QoE", "EE", "Rewards", "Ava_rewards", "Hit_ratio"]
+        )
 
         from datetime import datetime
 
         current_time = datetime.now()
 
         formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
-        df.to_csv(f"data_{exp_name}_{alg_name}_{formatted_time}.csv", index=False)
-        print(f"CSV 文件已生成：data_{exp_name}_{alg_name}_{formatted_time}.csv")
+        df.to_csv(f"{map_name}_{alg_name}__{formatted_time}.csv", index=False)
+        print(f"CSV 文件已生成：{map_name}_{alg_name}__{formatted_time}.csv")
+        print(f"仿真运行时间：{(env.endtime - env.start_time).seconds}s")
     # metrics_greedy = strategies.run_experiment(strategies.greedy_strategy, steps=3600)
     # print(f"random:{metrics_greedy}")
 
@@ -513,18 +599,21 @@ def other_policy(args, render=None):
 
 
 def main(args):
-    # rmappo(args=args)
-    # cProfile.run("other_policy()", sort="time")
-    profiler = cProfile.Profile()
-    profiler.enable()
-    other_policy(args, "human")
+    # # rmappo(args=args)
+    # # cProfile.run("other_policy()", sort="time")
+
+    # profiler = cProfile.Profile()
+    # profiler.enable()
+
+    other_policy(args, None)
+
     # rmappo(args)
-    profiler.disable()
-    # 创建 Stats 对象并排序
-    stats = pstats.Stats(profiler)
-    stats.sort_stats("time")  # 按内部时间排序
-    stats.reverse_order()  # 反转排序顺序（从升序变为降序，或从降序变为升序）
-    stats.print_stats()  # 打印结果
+    # profiler.disable()
+    # # 创建 Stats 对象并排序
+    # stats = pstats.Stats(profiler)
+    # stats.sort_stats("time")  # 按内部时间排序
+    # stats.reverse_order()  # 反转排序顺序（从升序变为降序，或从降序变为升序）
+    # stats.print_stats()  # 打印结果
 
 
 if __name__ == "__main__":
