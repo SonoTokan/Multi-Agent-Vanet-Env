@@ -11,7 +11,10 @@ This project:
 
 This code is part of my academic research for the graduation thesis.
 
+Random policy simulation in Seattle (Linden Avenue North 80-84th Street):
 ![Random simulation](random_139.gif)
+
+rMAPPO-TS (a marl method in my thesis) policy evaluation in London (Golden Square):
 ![rMAPPO_London simulation](London-rMAPPO-TS.gif)
 
 ## Usage
