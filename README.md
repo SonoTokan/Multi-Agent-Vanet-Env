@@ -32,3 +32,10 @@ Run eval.py to evaluation marl model:
 ```bash
 python eval.py
 ```
+
+### **Table 5.1: Applicability of Different Platforms**  
+| Platform Name | Traffic Simulation | Communication Simulation | Resource Allocation | Extensibility |  
+|--------------|------------------|------------------|------------------|--------------|  
+| **mobile-env** | ❌ Not Supported | ✅ Supported | ⚠️ Only Supports Network Resource Allocation | ⚠️ Partially Extensible |  
+| **sumo-rl** | ✅ Supported | ❌ Not Supported | ❌ Not Supported | ❌ Not Extensible |  
+| **CoMetaVanetEnv** | ✅ Supported | ✅ Supported | ✅ Supports Multi-Dimensional Resource Allocation | ✅ Highly Extensible |  
