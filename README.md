@@ -34,7 +34,7 @@ python eval.py
 ```
 
 ## Results
-### **Table: Applicability of Different Platforms**  
+### **Table 1: Applicability of Different Platforms**  
 | Platform Name | Traffic Simulation | Communication Simulation | Resource Allocation | Extensibility |  
 |--------------|------------------|------------------|------------------|--------------|  
 | **mobile-env** | ❌ Not Supported | ✅ Supported | ⚠️ Only Supports Network Resource Allocation | ⚠️ Partially Extensible |  
@@ -42,7 +42,7 @@ python eval.py
 | **CoMetaVanetEnv** | ✅ Supported | ✅ Supported | ✅ Supports Multi-Dimensional Resource Allocation | ✅ Highly Extensible |  
 ---
 
-### **Table : Experimental Setup**  
+### **Table 2: Experimental Setup**  
 
 | Parameter | Value |  
 |-----------|-------|  
@@ -56,7 +56,7 @@ python eval.py
 
 ---
 
-### **Table : Simulation Efficiency of Different Baseline Algorithms**  
+### **Table 3: Simulation Efficiency of Different Baseline Algorithms**  
 
 | Scenario | Strategy | Simulation Runtime (s) / Simulated Time (s) | Simulation Efficiency (Relative to Real-World Time) |  
 |------------|-----------------------------|-----------------------------|------------------------------------|  
