@@ -33,6 +33,7 @@ Run eval.py to evaluation marl model:
 python eval.py
 ```
 
+## Results
 ### **Table: Applicability of Different Platforms**  
 | Platform Name | Traffic Simulation | Communication Simulation | Resource Allocation | Extensibility |  
 |--------------|------------------|------------------|------------------|--------------|  
