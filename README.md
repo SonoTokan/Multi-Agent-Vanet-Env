@@ -32,6 +32,19 @@ Run eval.py to evaluation marl model:
 ```bash
 python eval.py
 ```
+Download dataset to vanet_env/data:
+```python
+# SMMnet
+import kagglehub
+
+# Download latest version
+path = kagglehub.dataset_download("leomauro/smmnet")
+
+print("Path to dataset files:", path)
+
+# Timik (this dataset is not yet implemented or test)
+...
+```
 
 ## Results
 ### **Table 1: Applicability of Different Platforms**  
@@ -73,3 +86,4 @@ python eval.py
 |  | Random (With GUI) | 84.018s / 1085s | 12.91× |  
 
 ---
+
