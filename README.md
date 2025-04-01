@@ -19,19 +19,12 @@ rMAPPO-TS (a marl method in my thesis) policy evaluation in London (Golden Squar
 
 ## Usage
 ### Init
+
 Install requirements:
 ```bash
 pip install -r requirements.txt
 ```
 
-Run train.py to train marl model:
-```bash
-python train.py
-```
-Run eval.py to evaluation marl model:
-```bash
-python eval.py
-```
 Download dataset to vanet_env/data:
 ```python
 # SMMnet
@@ -41,10 +34,30 @@ import kagglehub
 path = kagglehub.dataset_download("leomauro/smmnet")
 
 print("Path to dataset files:", path)
+# move it to vanet_env/data by yourself
+...
 
 # Timik (this dataset is not yet implemented or test)
 ...
 ```
+
+### Train
+You can modify train logical in train.py and model in onpolicy or using rlib, tianshou ...
+Run train.py to train marl model:
+```bash
+cd vanet_env
+python train.py
+```
+
+### Evaluation
+Similar to train.
+Run eval.py to evaluation marl model:
+```bash
+cd vanet_env
+python eval.py
+```
+
+
 
 ## Results
 ### **Table 1: Applicability of Different Platforms**  
