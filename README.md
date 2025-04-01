@@ -18,6 +18,7 @@ rMAPPO-TS (a marl method in my thesis) policy evaluation in London (Golden Squar
 ![rMAPPO_London simulation](London-rMAPPO-TS.gif)
 
 ## Usage
+Recommend python 3.11
 ### Init
 
 Install requirements:
