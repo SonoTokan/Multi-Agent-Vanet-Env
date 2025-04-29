@@ -13,8 +13,8 @@ from collections import defaultdict
 from vanet_env import env_light
 
 seed = 114514
-random.seed(114514)
-np.random.seed(114514)
+random.seed(seed)
+np.random.seed(seed)
 
 import sys
 import os
@@ -241,8 +241,6 @@ class MultiAgentStrategies:
         与 heuristic_strategy 不同，该策略不再依据当前的空闲状态动态调整，
         而是采用固定的“中间值”作为各项指标的分配值，从而在负载不均或数据噪声较大的情况下，
         也能实现一种较为稳定的公平分配。
-
-        注意：具体数值（例如中间值2）可以根据实际情况修改。
         """
         actions = []
         for idx, agent in enumerate(self.env.agents):
@@ -599,12 +597,13 @@ def other_policy(args, render=None):
 
 
 def main(args):
-    # # rmappo(args=args)
+    # 
     # # cProfile.run("other_policy()", sort="time")
 
     # profiler = cProfile.Profile()
     # profiler.enable()
 
+    # 使用其他策略或算法,如需使用rmappo,需要使用函数rmappo(args=args)
     other_policy(args, None)
 
     # rmappo(args)
