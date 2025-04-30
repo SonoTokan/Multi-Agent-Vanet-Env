@@ -215,6 +215,8 @@ def trajtest():
             self.expected_vehicle_ids = expected_vehicle_ids
             self.num_vehicles = len(expected_vehicle_ids)
 
+            current_dir = os.getcwd()
+            print('reading trajectory csv')
             # 读取 CSV 数据
             df = pd.read_csv(csv_file)
             # 如果 CSV 中还未归一化，则根据 x_max 和 y_max 归一化
@@ -222,13 +224,18 @@ def trajtest():
             df["y"] = df["y"] / y_max
 
             # 按照 timestep 分组，构建字典： timestep -> {vehicle_id: (x,y)}
-            self.time_groups = {}
-            for t, group in df.groupby("real_time"):
-                positions = {}
-                for _, row in group.iterrows():
-                    vid = row["vehicle_id"]
-                    positions[vid] = (row["x"], row["y"])
-                self.time_groups[t] = positions
+            # self.time_groups = {}
+            self.time_groups = (
+                df.groupby('real_time')
+                .apply(lambda g: dict(zip(g['vehicle_id'], zip(g['x'], g['y']))))
+                .to_dict()
+            )
+            # for t, group in df.groupby("real_time"):
+            #     positions = {}
+            #     for _, row in group.iterrows():
+            #         vid = row["vehicle_id"]
+            #         positions[vid] = (row["x"], row["y"])
+            #     self.time_groups[t] = positions
 
             # 按时间顺序获取所有的 timestep（确保连续采样）
             self.timesteps = sorted(self.time_groups.keys())
@@ -322,7 +329,7 @@ def trajtest():
             return self.dropout(x)
 
     # ========================
-    # 2. 构造数据集：随机轨迹数据（示例）
+    # 2. 构造数据集：随机轨迹数据
     # ========================
     class TrajectoryDataset(Dataset):
         def __init__(self, num_samples, seq_len, num_vehicles):
@@ -338,7 +345,7 @@ def trajtest():
             self.data = []  # 存储输入序列：[seq_len, num_vehicles, 2]
             self.targets = []  # 存储目标：下一时刻的车辆位置 [num_vehicles, 2]
 
-            # 构造随机轨迹（可以替换成你实际的 SUMO 轨迹数据）
+            # 构造随机轨迹
             for _ in range(num_samples):
                 # 初始化各车辆位置，随机在 [0,1] 内
                 traj = np.zeros((seq_len + 1, num_vehicles, 2), dtype=np.float32)
@@ -534,7 +541,9 @@ def trajtest():
 
     def real_traj():
         # 配置参数
-        csv_file = "trajectory_log.csv"  # 之前保存的 CSV 文件
+        
+        # path = os.path.join(os.path.dirname(__file__), "data", "SMMnet", "course-meta.csv")
+        csv_file = os.path.join(os.path.dirname(__file__), "data", "trajectory_log.csv") # 之前保存的 CSV 文件
         seq_len = 10
         expected_vehicle_ids = ["veh1", "veh2", "veh3", "veh4", "veh5"]
         x_max = 1000.0  # 根据 SUMO 配置设置
@@ -559,7 +568,7 @@ def trajtest():
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
         # 训练循环
-        num_epochs = 10
+        num_epochs = 1000
         model.train()
         for epoch in range(num_epochs):
             total_loss = 0.0

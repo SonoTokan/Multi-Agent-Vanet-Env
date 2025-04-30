@@ -1,11 +1,10 @@
 
-from vanet_env import env_config
+from vanet_env import env_config, test
 from vanet_env import (
     caching,
     data_preprocess,
     entites,
     network,
-    test,
     utils,
 )
 
