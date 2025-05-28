@@ -10,7 +10,7 @@ sys.path.append("./")
 import numpy as np
 import random
 from collections import defaultdict
-from vanet_env import env_light
+from vanet_env import env
 
 seed = 114514
 random.seed(seed)
@@ -27,7 +27,7 @@ import numpy as np
 from pathlib import Path
 import torch
 
-from vanet_env.env_light import Env
+from vanet_env.env import Env
 from vanet_env.onpolicy.config import get_config
 from vanet_env.onpolicy.envs.env_wrappers import (
     ShareSubprocVecEnv,
@@ -559,7 +559,7 @@ def other_policy(args, render=None):
     log = True
 
     step = env_max_step
-    env = env_light.Env(render, max_step=step, map=map_name)
+    env = env.Env(render, max_step=step, map=map_name)
     strategies = MultiAgentStrategies(env)
 
     if log:

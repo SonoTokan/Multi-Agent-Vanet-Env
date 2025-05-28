@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from shapely import Point
 
-from vanet_env import env_config, utility_light
+from vanet_env import env_config, utility
 from vanet_env.entites import Vehicle, Rsu
 
 sys.path.append("./")
@@ -204,7 +204,7 @@ class TrajectoryHandler(Handler):
         rewards = {}
         reward_per_agent = []
 
-        rsu_qoe_dict, caching_ratio_dict = utility_light.fixed_calculate_utility(
+        rsu_qoe_dict, caching_ratio_dict = utility.fixed_calculate_utility(
             vehs=self.env.vehicles,
             rsus=self.env.rsus,
             rsu_network=self.env.rsu_network,
@@ -743,7 +743,7 @@ class TrajectoryHandler(Handler):
                         ...
                     rsu.connections.remove(veh)
 
-
+# not imp
 class MappoHandler(Handler):
     def __init__(self, env):
         self.env = env
@@ -882,7 +882,7 @@ class MappoHandler(Handler):
         rewards = {}
         reward_per_agent = []
 
-        rsu_qoe_dict, caching_ratio_dict = utility_light.calculate_box_utility(
+        rsu_qoe_dict, caching_ratio_dict = utility.calculate_box_utility(
             vehs=self.env.vehicles,
             rsus=self.env.rsus,
             rsu_network=self.env.rsu_network,

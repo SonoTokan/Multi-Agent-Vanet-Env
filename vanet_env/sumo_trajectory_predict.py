@@ -292,6 +292,7 @@ def real_traj():
     # path = os.path.join(os.path.dirname(__file__), "data", "SMMnet", "course-meta.csv")
     csv_file = os.path.join(os.path.dirname(__file__), "data", "trajectory_log.csv") # 之前保存的 CSV 文件
     seq_len = 10
+    # 每个RSU智能体下最多能看见的车辆数
     expected_vehicle_ids = ["veh1", "veh2", "veh3", "veh4", "veh5"]
     x_max = 1000.0  # 根据 SUMO 配置设置
     y_max = 1000.0

@@ -116,7 +116,7 @@ def osmx_test():
 
 # fps 144?
 def sumo_env_test():
-    from vanet_env.env_light import Env
+    from vanet_env.env import Env
 
     fps = 10
     # render_mode="human", None

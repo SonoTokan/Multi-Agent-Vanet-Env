@@ -5,7 +5,7 @@ import math
 import random
 import sys
 
-from vanet_env import utility_light
+from vanet_env import utility
 from vanet_env import env_config
 
 sys.path.append("./")

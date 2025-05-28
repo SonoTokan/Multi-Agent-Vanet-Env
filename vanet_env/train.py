@@ -11,7 +11,7 @@ import numpy as np
 from pathlib import Path
 import torch
 
-from vanet_env.env_light import Env
+from vanet_env.env import Env
 from vanet_env.onpolicy.config import get_config
 from vanet_env.onpolicy.envs.env_wrappers import (
     ShareSubprocVecEnv,
